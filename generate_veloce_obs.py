@@ -70,7 +70,61 @@ for jd in jds:
     while diff > 0:
         jd.append(np.NaN)
         diff -= 1
-                    
+
+obs_type = []
+while len(obs_type)<len(fits):
+    obs_type.append('TARGET')
+# not found in list: 108249    
+BSTARS = ['10144', '14228', '37795', '47670', '50013', '56139', '89080', '91465', '93030', '98718', '105435', '105937', '106490', '108248', '108483', '109026', '109668', '110879', '118716', '120324', '121263', '121743', '121790', '122451', '125238', '127972', '129116', '132058', '134481', '136298', '136504', '138690', '139365', '142669', '143018', '143118', '143275', '144470', '157246', '158094', '158427', '158926', '160578', '165024', '169022', '175191', '209952', 'HR4468'] 
+
+STABLE_STARS = ['10700', '85512', '190248', 'Gl87', '194640', '144628']
+
+# not found in list: 211.01
+BINARY = ['AST303', '123.01', '129.01', '217.01', '544.01']
+
+#not found in list: 166.01
+REMOVED = ['151.01',]
+
+NEB = ['379.01', '399.01', '419.01', '803.01']
+
+ROTATOR = ['523.01']
+
+for star in BSTARS:
+    for name in star_names:
+        if star in name:
+            star = name
+    obs_type[star_names.index(star)] = 'BSTAR'
+    
+for star in STABLE_STARS:
+    for name in star_names:
+        if star in name:
+            star = name
+    obs_type[star_names.index(star)] = 'STABLE'  
+    
+for star in BINARY:
+    for name in star_names:
+        if star in name:
+            star = name
+    obs_type[star_names.index(star)] = 'BINARY'
+    
+for star in REMOVED:
+    for name in star_names:
+        if star in name:
+            star = name
+    obs_type[star_names.index(star)] = 'REMOVED'  
+    
+for star in NEB:
+    for name in star_names:
+        if star in name:
+            star = name
+    obs_type[star_names.index(star)] = 'NEB' 
+    
+for star in ROTATOR:
+    for name in star_names:
+        if star in name:
+            star = name
+    obs_type[star_names.index(star)] = 'ROTATOR'  
+            
 uniq_radec = np.array(uniq_radec)
 star_names = np.array(star_names)
 star_ix = np.array(star_ix)
@@ -78,5 +132,5 @@ obs_count = np.unique(star_ix, return_counts=True)[1]
 nflat = obs_count[0]
 obs_count = obs_count[1:]
 
-t = Table([star_names, uniq_radec,num_obs, jds, fits], names = ('star_names','ra_dec','number_obs','julian_obs_dates', 'fits_names'))
+t = Table([star_names, uniq_radec,obs_type,num_obs, jds, fits], names = ('star_names','ra_dec','obs_type','number_obs','julian_obs_dates', 'fits_names'))
 t.write('veloce_observations.fits', format = 'fits')
