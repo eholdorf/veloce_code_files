@@ -2,6 +2,11 @@ import numpy as np
 import glob as glob
 import astropy.io.fits as pyfits
 from astropy.table import Table
+import matplotlib.pyplot as plt
+from astropy.coordinates import SkyCoord
+from astroquery.gaia import Gaia
+import astropy.units as u
+
 
 objfns = glob.glob('oversc_logs/[12]?????/OBJECT.lis')
 
@@ -89,6 +94,11 @@ NEB = ['379.01', '399.01', '419.01', '803.01']
 
 ROTATOR = ['523.01']
 
+# changing the obsservation type for each star based on logs
+for name in star_names:
+    if '.0' in name:
+        obs_type[star_names.index(name)] = 'TOI'
+
 for star in BSTARS:
     for name in star_names:
         if star in name:
@@ -132,5 +142,38 @@ obs_count = np.unique(star_ix, return_counts=True)[1]
 nflat = obs_count[0]
 obs_count = obs_count[1:]
 
-t = Table([star_names, uniq_radec,obs_type,num_obs, jds, fits], names = ('star_names','ra_dec','obs_type','number_obs','julian_obs_dates', 'fits_names'))
-t.write('veloce_observations.fits', format = 'fits')
+#t = Table([star_names, uniq_radec,obs_type,num_obs, jds, fits], names = ('star_names','ra_dec','obs_type','number_obs','julian_obs_dates', 'fits_names'))
+#t.write('veloce_observations.fits', format = 'fits')
+
+# making a plot of the TOI's
+toi_index = []
+count = 0
+for obs in obs_type:
+    if obs == 'TOI':
+        toi_index.append(count)
+    count += 1
+      
+toi_radecs = [uniq_radec[i] for i in toi_index]
+
+toi_ra = [radec[0] for radec in toi_radecs]
+toi_dec = [radec[1] for radec in toi_radecs]
+
+toi_size = []
+for i in toi_index:
+    toi_size.append(num_obs[i])
+bp_rps = []
+for item in toi_radecs:    
+    coord = SkyCoord(ra=item[0], dec=item[1], unit=(u.degree, u.degree), frame='icrs')
+    width = u.Quantity(0.1, u.deg)
+    height = u.Quantity(0.1, u.deg)
+    r = Gaia.query_object_async(coordinate=coord, width=width, height=height)
+    bp_rps.append(r[0]['bp_rp'])
+    
+print(bp_rps)
+
+plt.figure()
+plt.scatter(toi_ra,toi_dec,s=toi_size,c=bp_rps,cmap='RdYlBu_r')
+plt.xlabel('RA')
+plt.ylabel('dec')
+plt.colorbar()
+plt.show()

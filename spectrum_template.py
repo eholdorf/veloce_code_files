@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import astropy.io.fits as pyfits
 
-file_path = '/priv/avatar/velocedata/Data/spec_211202/'
+file_path = '/priv/avatar/velocedata/Data/spec_211202'
 
 # Tau Ceti (HD10700) template
 # this assumes that each of the observations have the same wavelength scale (i.e. points)
