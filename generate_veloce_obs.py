@@ -4,8 +4,9 @@ import astropy.io.fits as pyfits
 from astropy.table import Table
 import matplotlib.pyplot as plt
 from astropy.coordinates import SkyCoord
-from astroquery.gaia import Gaia
+#from astroquery.gaia import Gaia
 import astropy.units as u
+import re
 
 
 objfns = glob.glob('oversc_logs/[12]?????/OBJECT.lis')
@@ -142,8 +143,48 @@ obs_count = np.unique(star_ix, return_counts=True)[1]
 nflat = obs_count[0]
 obs_count = obs_count[1:]
 
-#t = Table([star_names, uniq_radec,obs_type,num_obs, jds, fits], names = ('star_names','ra_dec','obs_type','number_obs','julian_obs_dates', 'fits_names'))
-#t.write('veloce_observations.fits', format = 'fits')
+Teff = [0]*len(star_names)
+K_pl = [0]*len(star_names)
+s_n = list(star_names)
+obs_current_new = Table.read('Veloce_Observing_Status_Current_Targets_NEW.csv')
+for line in obs_current_new[2:-1]:
+    for name in star_names:
+        if str(line[1]) in name:
+            Teff[s_n.index(name)] = int(line[24])           
+obs_current_old = Table.read('Veloce_Observing_Status_Current_Targets_OLD.csv')
+for line in obs_current_old[2:-1]:
+    for name in star_names:
+        if str(line[1]) in name:
+            if Teff[s_n.index(name)] == 0:
+                Teff[s_n.index(name)] = int(line[24])
+            
+obs_current_old = Table.read('Veloce_Observing_Status_Aug21_Oct21_planning.csv')
+for line in obs_current_old[2:-1]:
+    for name in star_names:
+        if str(line[1]) in name:
+            if Teff[s_n.index(name)] == 0:
+                Teff[s_n.index(name)] = int(line[19]) 
+            if K_pl[s_n.index(name)] == 0:
+                K_pl[s_n.index(name)] = float(line[5])
+                
+obs_current_old = Table.read('Veloce_Observing_Status_Mar21_planning.csv')
+for line in obs_current_old[2:-1]:
+    for name in star_names:
+        if str(line[1]) in name:
+            if Teff[s_n.index(name)] == 0:
+                Teff[s_n.index(name)] = int(line[19])  
+            if K_pl[s_n.index(name)] == 0:
+                K_pl[s_n.index(name)] = float(line[5])         
+# get name, TOI status and colour out of text file
+toi_info = open('TOIs.txt')
+toi_info_ = []
+for line in toi_info:
+    name = re.search('TOI [0-9]*',line)
+    status = re.search(', [A-Z]*',line)
+    colour = re.search(', [0-9,.,-][0-9,.,-]*',line)
+    toi_info_.append((name.group(0),status.group(0)[1:],colour.group(0)[1:]))
+
+toi_info.close()
 
 # making a plot of the TOI's
 toi_index = []
@@ -152,7 +193,8 @@ for obs in obs_type:
     if obs == 'TOI':
         toi_index.append(count)
     count += 1
-      
+tois = [star_names[i] for i in toi_index]
+#print(tois)      
 toi_radecs = [uniq_radec[i] for i in toi_index]
 
 toi_ra = [radec[0] for radec in toi_radecs]
@@ -161,19 +203,26 @@ toi_dec = [radec[1] for radec in toi_radecs]
 toi_size = []
 for i in toi_index:
     toi_size.append(num_obs[i])
-bp_rps = []
-for item in toi_radecs:    
-    coord = SkyCoord(ra=item[0], dec=item[1], unit=(u.degree, u.degree), frame='icrs')
-    width = u.Quantity(0.1, u.deg)
-    height = u.Quantity(0.1, u.deg)
-    r = Gaia.query_object_async(coordinate=coord, width=width, height=height)
-    bp_rps.append(r[0]['bp_rp'])
     
-print(bp_rps)
+# get colour out for plot
+bp_rps = []
 
+bp_rp = [float(toi[2]) for toi in toi_info_]
 plt.figure()
-plt.scatter(toi_ra,toi_dec,s=toi_size,c=bp_rps,cmap='RdYlBu_r')
+plt.scatter(toi_ra,toi_dec,s=toi_size, c = bp_rp,cmap = 'RdYlBu_r')
 plt.xlabel('RA')
 plt.ylabel('dec')
-plt.colorbar()
+plt.colorbar(label =r'$B_p - R_p$')
 plt.show()
+
+for name in tois:
+    for toi in toi_info_:
+        if str(toi[0][4:]) in str(name):
+            i = toi_index[tois.index(name)]
+            obs_type[i] += toi[1] 
+print(obs_type)         
+t = Table([star_names, uniq_radec,obs_type,num_obs,Teff,K_pl, jds, fits], names = ('star_names','ra_dec','obs_type','number_obs','T_eff','K_pl','julian_obs_dates', 'fits_names'))
+t.write('veloce_observations.fits', format = 'fits')
+
+
+
