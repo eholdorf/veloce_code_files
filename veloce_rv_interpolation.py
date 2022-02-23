@@ -67,5 +67,55 @@ def log_scale_interpolation(template_spectrum_dir, star_spectrum_dir,k=5):
         all_t_logflux.append(t_logflux)
         all_s_logflux.append(s_logflux)
     return all_log_w, all_t_logflux, all_s_logflux
+
 # testing code for a star  
-log_scale_interpolation('/priv/avatar/velocedata/Data/spec_211202/191211/11dec30096oi_extf.fits','/priv/avatar/velocedata/Data/spec_211202/191211/11dec30096oi_extf.fits')
+#log_scale_interpolation('/priv/avatar/velocedata/Data/spec_211202/191211/11dec30096oi_extf.fits','/priv/avatar/velocedata/Data/spec_211202/191211/11dec30096oi_extf.fits')
+
+def make_template(file_path,observation_dir):
+    """
+    Description
+    -----------
+    This code will create a template spectrum on a evenly spaced log wavelength scale.
+    
+    Parameters
+    ----------
+    file_path : type - string
+        path to where each of the elements of observation_dir are
+    
+    observation_dir : type - list of strings
+       for each observation needed in the template, the file path to each different observation (i.e. rest of file path after file_path input)
+    
+    Returns
+    -------
+    log_scale : type - np.array() of lists
+        the log wavelength scale for each of the stellar fibres 
+    
+    template_spectrum : type - np.array() of lists
+        the template spectrum for each of the stellar fibres
+    """
+    # go through all observations but the first, we will use this as the template to move all of the other observations to
+    for template in observation_dir[1:]:
+        #create the log scale interpolation
+        result = log_scale_interpolation(file_path+observation_dir[0],file_path+template)
+        log_scale = []
+        # if this is the first run, then save the log scale and start the template spectrum and add in the star observation
+        if len(log_scale) == 0:
+            log_scale = np.array(result[0])
+            template_spectrum = np.array(result[1])
+            template_spectrum += result[2]
+        # if it isn't the first run, then just add the star spectrum to the template
+        else:
+            template_spectrum += result[2]
+    return log_scale, template_spectrum/len(observation_dir)
+
+# test make_template
+file_path = '/priv/avatar/velocedata/Data/spec_211202/'
+
+# Tau Ceti (HD10700) template from dec 2019
+
+TC_observation_dir = ['191211/11dec30096oi_extf.fits', '191211/11dec30097oi_extf.fits', '191212/12dec30132oi_extf.fits', '191212/12dec30133oi_extf.fits','191212/12dec30134oi_extf.fits', '191213/13dec30076oi_extf.fits', '191213/13dec30077oi_extf.fits', '191214/14dec30066oi_extf.fits', '191214/14dec30067oi_extf.fits', '191214/14dec30068oi_extf.fits', '191215/15dec30097oi_extf.fits', '191215/15dec30098oi_extf.fits', '191215/15dec30099oi_extf.fits']
+
+wave, spect = make_template(file_path, TC_observation_dir)
+plt.plot(wave[0], spect[0],'.')
+plt.show()
+    
