@@ -22,7 +22,9 @@ def get_fits_path(fits,extension = 'extf'):
     all_files : type - list of strings
         list containing list of all of the desired file paths
     """
-    all_files = []
+    # initiate list length of all of the files
+    all_files = ['']*len(fits)
+    i = 0
     for fit in fits:
         # decode the byte to a string and extract the start of the string which contains the date and observation
         fit = fit.decode("utf-8")[0:10]
@@ -33,7 +35,8 @@ def get_fits_path(fits,extension = 'extf'):
         # extract the path to the file
         desired_file = glob.glob('/priv/avatar/velocedata/Data/spec_211202/[12]?????/'+fit+'oi_'+extension+'.fits')
         # add the path to the list of file paths
-        all_files.append(desired_file[0])
+        all_files[i] = desired_file[0]
+        i += 1
     print(all_files)
     return all_files
 
