@@ -2,6 +2,7 @@ import numpy as np
 from scipy.interpolate import InterpolatedUnivariateSpline
 import matplotlib.pyplot as plt
 import astropy.io.fits as pyfits
+from scipy.signal import correlate
 
 def log_scale_interpolation(template_spectrum_dir, star_spectrum_dir,k=5):
     """
@@ -115,7 +116,22 @@ file_path = '/priv/avatar/velocedata/Data/spec_211202/'
 
 TC_observation_dir = ['191211/11dec30096oi_extf.fits', '191211/11dec30097oi_extf.fits', '191212/12dec30132oi_extf.fits', '191212/12dec30133oi_extf.fits','191212/12dec30134oi_extf.fits', '191213/13dec30076oi_extf.fits', '191213/13dec30077oi_extf.fits', '191214/14dec30066oi_extf.fits', '191214/14dec30067oi_extf.fits', '191214/14dec30068oi_extf.fits', '191215/15dec30097oi_extf.fits', '191215/15dec30098oi_extf.fits', '191215/15dec30099oi_extf.fits']
 
-wave, spect = make_template(file_path, TC_observation_dir)
-plt.plot(wave[0], spect[0],'.')
-plt.show()
+#wave, spect = make_template(file_path, TC_observation_dir)
+#plt.plot(wave[0], spect[0],'.')
+#plt.show()
+
+def calc_rv(file_path, observation_dir, star_spectrum_dir, k=5):
+    # generate a template and wavelength scale
+    template_wave, template_spec = make_template(file_path,observation_dir)
+    print(np.shape(template_spec))
+    # interpolate the star spectrum onto the same wavelength scale as above
+    wavelength, template, star_spec = log_scale_interpolation(file_path+observation_dir[0],star_spectrum_dir)
+    print(np.shape(star_spec))
+    # perfrom cross-correlation between template and spectrum
+    cor = correlate(star_spec, template_spec, mode = 'same',method = 'auto')
+    plt.plot(template_wave[0],cor[0]/max(cor[0]))
+    plt.show()
+    
+   
+calc_rv(file_path, TC_observation_dir, '/priv/avatar/velocedata/Data/spec_211202/191211/11dec30096oi_extf.fits')
     
