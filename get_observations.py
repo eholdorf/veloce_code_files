@@ -44,5 +44,29 @@ def get_fits_path(fits,extension = 'extf'):
 #dd = Table.read('veloce_observations.fits')        
 #get_fits_path([dd[0][7][0],dd[0][7][1]])
         
-        
+def get_folder(fits):
+    all_folders = ['']*len(fits)
+    i = 0
+    for fit in fits:
+    # decode the byte to a string and extract the start of the string which contains the date and observation
+        if fit != '':
+            fit = fit[0:10]    
 
+            # extract the path to the file
+            desired_file = glob.glob('/priv/avatar/velocedata/Data/Raw/[12]?????/ccd_3/'+fit+'.fits')
+            if len(desired_file)==0:
+                desired_file = glob.glob('/priv/avatar/velocedata/Data/spec_211202/[12]?????/'+fit+'oi_extf.fits')
+                if len(desired_file)==0:
+                    folder = 'DNF'
+                else:
+                    folder = desired_file[0][41:47]
+            else:
+                folder = desired_file[0][33:39]
+            all_folders[i] = folder
+            i += 1
+    #print(all_folders)
+    return all_folders
+    
+#testing
+#dd = Table.read('veloce_observations.fits')        
+#get_folder([dd[0][7][0],dd[0][7][1]])

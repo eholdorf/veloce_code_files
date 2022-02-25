@@ -7,6 +7,7 @@ from astropy.coordinates import SkyCoord
 #from astroquery.gaia import Gaia
 import astropy.units as u
 import re
+import get_observations as g_o
 
 
 objfns = glob.glob('oversc_logs/[12]?????/OBJECT.lis')
@@ -207,21 +208,41 @@ for i in toi_index:
 # get colour out for plot
 bp_rps = []
 
-bp_rp = [float(toi[2]) for toi in toi_info_]
+bp_rp = np.array([float(toi[2]) for toi in toi_info_])
+mask = bp_rp>0.6
+bp_rp = bp_rp[mask]
+toi_ra = np.array(toi_ra)[mask]
+toi_dec = np.array(toi_dec)[mask]
+toi_size = np.array(toi_size)[mask]
+
 plt.figure()
+plt.scatter(toi_ra[6],toi_dec[6], s=200, c= bp_rp[6],cmap = 'Greys', label = '200')
+plt.scatter(toi_ra[50],toi_dec[50], s=toi_size[50], c= bp_rp[50],cmap = 'Greys', label = str(toi_size[50]))
+plt.scatter(toi_ra[51],toi_dec[51], s=toi_size[51], c= bp_rp[51],cmap = 'Greys', label = str(toi_size[51]))
+plt.scatter(toi_ra[10],toi_dec[10], s=toi_size[10], c= bp_rp[10],cmap = 'Greys',label = str(toi_size[10]))
+#plt.scatter(toi_ra[-1],toi_dec[-1], s=toi_size[-1], c= bp_rp[-1],cmap = 'Greys',label = str(toi_size[-1]))
 plt.scatter(toi_ra,toi_dec,s=toi_size, c = bp_rp,cmap = 'RdYlBu_r')
-plt.xlabel('RA')
-plt.ylabel('dec')
+plt.xlabel('RA (deg)')
+plt.ylabel('dec (deg)')
 plt.colorbar(label =r'$B_p - R_p$')
+plt.legend(loc = 'best')
 plt.show()
 
 for name in tois:
     for toi in toi_info_:
         if str(toi[0][4:]) in str(name):
             i = toi_index[tois.index(name)]
-            obs_type[i] += toi[1] 
-print(obs_type)         
-t = Table([star_names, uniq_radec,obs_type,num_obs,Teff,K_pl, jds, fits], names = ('star_names','ra_dec','obs_type','number_obs','T_eff','K_pl','julian_obs_dates', 'fits_names'))
+            obs_type[i] += toi[1]
+#find directory of each data set
+directories = []
+count = 0
+for star in fits:
+    directory = g_o.get_folder(star)
+    directories.append(directory)
+    print(count)
+    count+=1
+print(directories)
+t = Table([star_names, uniq_radec,obs_type,num_obs,Teff,K_pl, jds, fits,directories], names = ('star_names','ra_dec','obs_type','number_obs','T_eff','K_pl','julian_obs_dates', 'fits_names','directory'))
 t.write('veloce_observations.fits', format = 'fits')
 
 
