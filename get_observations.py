@@ -30,7 +30,7 @@ def get_fits_path(fits,extension = 'extf'):
         fit = fit.decode("utf-8")[0:10]
         # check the given extension is valid
         if extension not in ['extf','extv','exts']:
-            print("not a valid extension, choose from: 'extf', 'extv' or 'exts'")
+            print("not a valid extension, choose from: 'extf', 'extfv' or 'extfs'")
             return
         # extract the path to the file
         desired_file = glob.glob('/priv/avatar/velocedata/Data/spec_211202/[12]?????/'+fit+'oi_'+extension+'.fits')

@@ -3,6 +3,8 @@ from scipy.interpolate import InterpolatedUnivariateSpline
 import matplotlib.pyplot as plt
 import astropy.io.fits as pyfits
 from scipy.signal import correlate
+from astropy.table import Table
+from astropy.io import fits
 
 def log_scale_interpolation(template_spectrum_dir, star_spectrum_dir,k=5):
     """
@@ -57,13 +59,13 @@ def log_scale_interpolation(template_spectrum_dir, star_spectrum_dir,k=5):
             s_f = template[0].data[:,order,fibre][~s_mask]
             # create a log scale from min wavelength to max wavelength of template with the same number of points and add this to the overall wavelength scale
             new_log_w = np.min(t_w)*np.exp(np.log(np.max(t_w)/np.min(t_w))/len(t_w)*np.arange(len(t_w)))
-            log_w.extend(new_log_w)
+            log_w.append(new_log_w)
             #generate a function that will interpolate the flux for new wavelength scale
             t_poly = InterpolatedUnivariateSpline(t_w,t_f,k=k)
             s_poly = InterpolatedUnivariateSpline(s_w,s_f,k=k)
             # evaluate the flux with the new wavelength scale
-            t_logflux.extend(t_poly(new_log_w))
-            s_logflux.extend(s_poly(new_log_w))
+            t_logflux.append(t_poly(new_log_w))
+            s_logflux.append(s_poly(new_log_w))
         all_log_w.append(log_w)
         all_t_logflux.append(t_logflux)
         all_s_logflux.append(s_logflux)
@@ -116,11 +118,52 @@ file_path = '/priv/avatar/velocedata/Data/spec_211202/'
 
 TC_observation_dir = ['191211/11dec30096oi_extf.fits', '191211/11dec30097oi_extf.fits', '191212/12dec30132oi_extf.fits', '191212/12dec30133oi_extf.fits','191212/12dec30134oi_extf.fits', '191213/13dec30076oi_extf.fits', '191213/13dec30077oi_extf.fits', '191214/14dec30066oi_extf.fits', '191214/14dec30067oi_extf.fits', '191214/14dec30068oi_extf.fits', '191215/15dec30097oi_extf.fits', '191215/15dec30098oi_extf.fits', '191215/15dec30099oi_extf.fits']
 
-wave, spect = make_template(file_path, TC_observation_dir)
-plt.plot(wave[0], spect[0],'.')
-plt.show()
+#wave, spect = make_template(file_path, TC_observation_dir)
+#plt.plot(wave[0], spect[0],'.')
+#plt.show()
 
-def calc_rv(file_path, observation_dir, star_spectrum_dir, k=5):
+def generate_template(file_paths):    
+    # generate a blank spectrum template to fill
+    dd = pyfits.open(file_paths[0])
+    template_spectrum = np.zeros([np.shape(dd[0])[0],np.shape(dd[0])[1],np.shape(dd[0])[2]], dtype = object)
+    print(np.shape(template_spectrum))
+    # iterate through each observation that is wanted in the template
+    num_good_pixels = np.ones([np.shape(dd[0])[0],np.shape(dd[0])[1],np.shape(dd[0])[2]],dtype = object)
+    for obs in file_paths:
+        print(':0')
+        dd = pyfits.open(obs)
+        # iterate through the fibres
+        good_pixels = np.zeros([np.shape(dd[0])[0],np.shape(dd[0])[1],np.shape(dd[0])[2]],dtype = object)
+        
+        for fibre in range(28):
+            # iterate through the orders
+            for order in range(40):
+                # pull out spectrum
+                spectrum = dd[0].data[:,order,fibre]
+                # mask out NaN values
+                #mask = np.isnan(spectrum)
+                #spectrum = spectrum[~mask]
+                i = 1
+                if len(spectrum)!=0:
+                    # put first and last elements in the list
+                    good_pixels[fibre,order,0] = spectrum[0]
+                    good_pixels[fibre,order,-1] = spectrum[-1]
+                    # check for bad pixels, if bad don't include it
+                    while i < len(spectrum)-1:
+                        # if the difference between given pixel and neighbouring is large then remove (but keep nan pixels in otherwise)
+                        if abs(spectrum[i] - spectrum[i+1])<1000 and abs(spectrum[i-1] - spectrum[i])<1000 or np.isnan(spectrum[i]) or np.isnan(spectrum[i-1]) or np.isnan(spectrum[i+1]):
+                            good_pixels[i, order, fibre] = spectrum[i]
+                            num_good_pixels[i,order,fibre] += 1
+                            
+                        i += 1
+        template_spectrum = template_spectrum + good_pixels
+    return dd[1].data[:,:,:], template_spectrum/num_good_pixels
+        
+TC_observation_dir = ['191211/11dec30096oi_extfv.fits', '191211/11dec30097oi_extfv.fits', '191212/12dec30132oi_extfv.fits', '191212/12dec30133oi_extfv.fits', '191212/12dec30134oi_extfv.fits', '191213/13dec30076oi_extfv.fits', '191213/13dec30077oi_extfv.fits', '191214/14dec30066oi_extfv.fits', '191214/14dec30067oi_extfv.fits', '191214/14dec30068oi_extfv.fits', '191215/15dec30097oi_extfv.fits', '191215/15dec30098oi_extfv.fits', '191215/15dec30099oi_extfv.fits']
+
+ob = [file_path+TC_observation_dir[i] for i in range(len(TC_observation_dir))]
+
+def calc_rv_corr(file_path, observation_dir, star_spectrum_dir, k=5):
     # generate a template and wavelength scale
     template_wave, template_spec = make_template(file_path,observation_dir)
     # interpolate the star spectrum onto the same wavelength scale as above
@@ -137,5 +180,5 @@ def calc_rv(file_path, observation_dir, star_spectrum_dir, k=5):
     return correlation
     
    
-#calc_rv(file_path, TC_observation_dir, '/priv/avatar/velocedata/Data/spec_211202/191211/11dec30096oi_extf.fits')
+#calc_rv_corr(file_path, TC_observation_dir, '/priv/avatar/velocedata/Data/spec_211202/191211/11dec30096oi_extf.fits')
     
