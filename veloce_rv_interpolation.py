@@ -109,6 +109,7 @@ def make_template(file_path,observation_dir):
         # if it isn't the first run, then just add the star spectrum to the template
         else:
             template_spectrum += result[2]
+	
     return log_scale, template_spectrum/len(observation_dir)
 
 # test make_template
@@ -141,27 +142,49 @@ def generate_template(file_paths):
                 # pull out spectrum
                 spectrum = dd[0].data[:,order,fibre]
                 # mask out NaN values
-                #mask = np.isnan(spectrum)
-                #spectrum = spectrum[~mask]
-                i = 1
-                if len(spectrum)!=0:
-                    # put first and last elements in the list
-                    good_pixels[fibre,order,0] = spectrum[0]
-                    good_pixels[fibre,order,-1] = spectrum[-1]
-                    # check for bad pixels, if bad don't include it
-                    while i < len(spectrum)-1:
-                        # if the difference between given pixel and neighbouring is large then remove (but keep nan pixels in otherwise)
-                        if abs(spectrum[i] - spectrum[i+1])<1000 and abs(spectrum[i-1] - spectrum[i])<1000 or np.isnan(spectrum[i]) or np.isnan(spectrum[i-1]) or np.isnan(spectrum[i+1]):
-                            good_pixels[i, order, fibre] = spectrum[i]
-                            num_good_pixels[i,order,fibre] += 1
+                mask = np.isnan(spectrum)
+                spectrum = spectrum[~mask]
+                i = 0
+                while i < len(spectrum):
+                    good_pixels[i, order, fibre] = spectrum[i]
+                    num_good_pixels[i,order,fibre] += 1
                             
-                        i += 1
+                    i += 1
         template_spectrum = template_spectrum + good_pixels
-    return dd[1].data[:,:,:], template_spectrum/num_good_pixels
+    # find the median fibre height to check for bad pixels
+    median_fibre_spectrum = np.median(template_spectrum[:,:,4:23]/num_good_pixels[:,:,4:23],2)
+    
+    # for each fibre, find the median difference between it and median_fibre_spectrum and remove pixels with a difference much larger than this
+    template = np.zeros([np.shape(dd[0])[0],np.shape(dd[0])[1]],dtype = object)
+    weights = np.ones([np.shape(dd[0])[0],np.shape(dd[0])[1]],dtype = object)
+    
+    for fibre in range(19):
+        diff = [abs(template_spectrum[:,:,4+fibre] - median_fibre_spectrum[:,:])]
+        med_diff = np.median(diff)
+        # the distance from the median difference for each point
+        diff = abs(diff - med_diff)[0,:,:]
         
-TC_observation_dir = ['191211/11dec30096oi_extfv.fits', '191211/11dec30097oi_extfv.fits', '191212/12dec30132oi_extfv.fits', '191212/12dec30133oi_extfv.fits', '191212/12dec30134oi_extfv.fits', '191213/13dec30076oi_extfv.fits', '191213/13dec30077oi_extfv.fits', '191214/14dec30066oi_extfv.fits', '191214/14dec30067oi_extfv.fits', '191214/14dec30068oi_extfv.fits', '191215/15dec30097oi_extfv.fits', '191215/15dec30098oi_extfv.fits', '191215/15dec30099oi_extfv.fits']
+        # for each point in each fibre keep in template if difference to median spectrum - median distance/median distance is less than 1.1
+        for order in range(40):
+            for wave in range(np.shape(diff)[0]):
+                if diff[wave,order]/med_diff<=1.1:
+                    weights[wave,order] += 1
+                    template[wave,order] += template_spectrum[wave,order,fibre+4]
+    mask = template[:,0] != 0
+    plt.figure()
+    plt.plot(dd[1].data[:,0,5][mask],(template[:,0]/weights[:,0])[mask])
+    plt.figure()
+    plt.plot(dd[1].data[:,0,5],median_fibre_spectrum[:,0])
+    plt.show()
+        
+    # return the template spectrum with weighted average
+    return template/weights
+        
+TC_observation_dir = ['191211/11dec30096oi_extfv.fits', '191211/11dec30097oi_extfv.fits']#, '191212/12dec30132oi_extfv.fits', '191212/12dec30133oi_extfv.fits', '191212/12dec30134oi_extfv.fits', '191213/13dec30076oi_extfv.fits', '191213/13dec30077oi_extfv.fits', '191214/14dec30066oi_extfv.fits', '191214/14dec30067oi_extfv.fits', '191214/14dec30068oi_extfv.fits', '191215/15dec30097oi_extfv.fits', '191215/15dec30098oi_extfv.fits', '191215/15dec30099oi_extfv.fits']
 
 ob = [file_path+TC_observation_dir[i] for i in range(len(TC_observation_dir))]
+
+s = generate_template(ob)
 
 def calc_rv_corr(file_path, observation_dir, star_spectrum_dir, k=5):
     # generate a template and wavelength scale
