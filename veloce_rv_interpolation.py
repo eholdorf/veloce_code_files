@@ -186,30 +186,31 @@ def generate_template(file_paths):
         the error for each point on the template
     """    
     # generate a blank spectrum template to fill
-    wavelength, flux_t, flux_t_err, flux_s, flux_s_err = log_scale_interpolation(file_paths[0])
-    dd = pyfits.open(file_paths[0])
-    template_spectrum = np.zeros([np.shape(dd[0])[0],np.shape(dd[0])[1],np.shape(dd[0])[2]], dtype = object)
-    template_spectrum_error = np.zeros([np.shape(dd[0])[0],np.shape(dd[0])[1],np.shape(dd[0])[2]], dtype = object)
+    wavelength, flux_t, flux_t_err, flux_s, flux_s_err = log_scale_interpolation(file_paths[0],file_paths[0])
+    #dd = pyfits.open(file_paths[0])
+    template_spectrum = np.zeros([np.shape(flux_t)[0],np.shape(flux_t)[1],np.shape(flux_t)[2]], dtype = object)
+    template_spectrum_error = np.zeros([np.shape(flux_t)[0],np.shape(flux_t)[1],np.shape(flux_t)[2]], dtype = object)
     
     # iterate through each observation that is wanted in the template
-    num_good_pixels = np.ones([np.shape(dd[0])[0],np.shape(dd[0])[1],np.shape(dd[0])[2]],dtype = object)
+    num_good_pixels = np.ones([np.shape(flux_t)[0],np.shape(flux_t)[1],np.shape(flux_t)[2]],dtype = object)
     for obs in file_paths:
         print(':0')
-        dd = pyfits.open(obs)
+        #dd = pyfits.open(obs)
+        wavelength, flux_t, flux_t_err, flux_s, flux_s_err = log_scale_interpolation(file_paths[0],obs)
         # iterate through the fibres
-        good_pixels = np.zeros([np.shape(dd[0])[0],np.shape(dd[0])[1],np.shape(dd[0])[2]],dtype = object)
-        error_good_pixels = np.zeros([np.shape(dd[0])[0],np.shape(dd[0])[1],np.shape(dd[0])[2]],dtype = object)
+        good_pixels = np.zeros([np.shape(flux_s)[0],np.shape(flux_s)[1],np.shape(flux_s)[2]],dtype = object)
+        error_good_pixels = np.zeros([np.shape(flux_s)[0],np.shape(flux_s)[1],np.shape(flux_s)[2]],dtype = object)
         for fibre in range(19):
             # iterate through the orders
             for order in range(40):
                 # pull out spectrum
-                spectrum = dd[0].data[:,order,fibre+4]
-                error = dd[2].data[:,order,fibre+4]
+                spectrum = flux_s[:,order,fibre]
+                error = flux_s_err[:,order,fibre]
                 i = 0
                 while i < len(spectrum):
-                    good_pixels[i, order, fibre+4] = spectrum[i]
-                    error_good_pixels[i,order,fibre+4] = error[i]
-                    num_good_pixels[i,order,fibre+4] += 1
+                    good_pixels[i, order, fibre] = spectrum[i]
+                    error_good_pixels[i,order,fibre] = error[i]
+                    num_good_pixels[i,order,fibre] += 1
                             
                     i += 1
         template_spectrum += good_pixels
@@ -217,16 +218,16 @@ def generate_template(file_paths):
     # find the median fibre height to check for bad pixels, only include the stellar fibres
     template_spectrum /=num_good_pixels
     template_spectrum_error /= num_good_pixels
-    median_fibre_spectrum = np.median(template_spectrum[:,:,4:23]/num_good_pixels[:,:,4:23],2)
-    median_error_spectrum = np.median(template_spectrum_error[:,:,4:23]/num_good_pixels[:,:,4:23],2)
+    median_fibre_spectrum = np.median(template_spectrum/num_good_pixels,2)
+    median_error_spectrum = np.median(template_spectrum_error/num_good_pixels,2)
     
     # for each fibre, find the median difference between it and median_fibre_spectrum and remove pixels with a difference much larger than this
-    template = np.zeros([np.shape(dd[0])[0],np.shape(dd[0])[1]],dtype = object)
-    error = np.zeros([np.shape(dd[0])[0],np.shape(dd[0])[1]],dtype = object)
-    weights = np.ones([np.shape(dd[0])[0],np.shape(dd[0])[1]],dtype = object)
+    template = np.zeros([np.shape(flux_s)[0],np.shape(flux_s)[1]])
+    error = np.zeros([np.shape(flux_s)[0],np.shape(flux_s)[1]])
+    weights = np.ones([np.shape(flux_s)[0],np.shape(flux_s)[1]])
     
     for fibre in range(19):
-        diff = [abs(template_spectrum[:,:,4+fibre] - median_fibre_spectrum[:,:])]
+        diff = [abs(template_spectrum[:,:,fibre] - median_fibre_spectrum[:,:])]
         med_diff = np.median(diff)
         # the distance from the median difference for each point
         diff = abs(diff - med_diff)[0,:,:]       
@@ -240,11 +241,11 @@ def generate_template(file_paths):
                     # add one to the weight for this wavelength to compute the weighted average
                     weights[wave,order] += 1
                     # add spectrum value to this wavelength position in template
-                    template[wave,order] += template_spectrum[wave,order,fibre+4]
-                    error[wave,order] += template_spectrum_error[wave,order,fibre+4]
+                    template[wave,order] += template_spectrum[wave,order,fibre]
+                    error[wave,order] += template_spectrum_error[wave,order,fibre]
                     
     # define the wavelength scale, choose any fibre as all the same
-    wavelength = dd[1].data[:,:,5].copy()
+    #wavelength = dd[1].data[:,:,5].copy()
     template /= weights
     error /= weights
     # set all 0 values to NaN and values which have a low signal to noise
@@ -258,19 +259,26 @@ def generate_template(file_paths):
     plt.figure()
     plt.plot(wavelength,median_fibre_spectrum)
     plt.show()
-    
-    plt.plot(wavelength,diff/med_diff-template_spectrum_error[:,:,fibre])
-    plt.show()
-    plt.plot(wavelength,weights)
-    plt.show()   
+  
     # return the template spectrum with weighted average
     return wavelength, template, error
         
 testing_temp_files = ['11dec30096o.fits', '11dec30097o.fits', '12dec30132o.fits', '12dec30133o.fits', '12dec30134o.fits', '13dec30076o.fits', '13dec30077o.fits', '14dec30066o.fits', '14dec30067o.fits', '14dec30068o.fits', '15dec30097o.fits', '15dec30098o.fits', '15dec30099o.fits']
 
-#ob = [file_path+TC_observation_dir[i] for i in range(len(TC_observation_dir))]
+w, s, e = generate_template(testing_temp_files)
 
-#w, s = generate_template(ob)
+primary_hdu = pyfits.PrimaryHDU(s)
+image_hdu = pyfits.ImageHDU(w)
+image_hdu2 = pyfits.ImageHDU(e)
+hdul = pyfits.HDUList([primary_hdu, image_hdu, image_hdu2])
+hdul.writeto('Tau_Ceti_Template_dec2019.fits')
+
+#c1 = pyfits.Column(name='Flux', format='E',array=s)
+#c2 = pyfits.Column(name='Wavelength', format='E', array=w)
+#c3 = pyfits.Column(name='Flux Error', format='E', array=e)
+#cols = pyfits.ColDefs([c1,c2,c3])
+#t = pyfits.BinTableHDU.from_columns(cols)
+#t.writeto('table2.fits')
 
 def calc_rv_corr(file_path, observation_dir, star_spectrum_dir, k=5):
     # generate a template and wavelength scale
