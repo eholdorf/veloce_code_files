@@ -40,8 +40,10 @@ def log_scale_interpolation(template_obs, star_obs,k=5):
     veloce_obs = Table.read('veloce_observations.fits')
     template_i = 0
     template_j = 0
+    template_obs_num = 0
     star_i = 0
     star_j = 0
+    star_obs_num = 0
     for star in veloce_obs:
         template_j = 0
         star_j = 0
@@ -49,9 +51,11 @@ def log_scale_interpolation(template_obs, star_obs,k=5):
             if obs.decode("utf-8") == template_obs:
                 template_fits_row = veloce_obs[template_i]
                 template_spectrum_dir = '/priv/avatar/velocedata/Data/spec_211202/'+veloce_obs[template_i][8][template_j].decode("utf-8")+'/'+obs.decode("utf-8")[0:10]+'oi_extf.fits'
+                template_obs_num = template_j
             if obs.decode("utf-8") == star_obs:
                 star_fits_row = veloce_obs[star_i]
                 star_spectrum_dir = '/priv/avatar/velocedata/Data/spec_211202/'+veloce_obs[star_i][8][star_j].decode("utf-8")+'/'+obs.decode("utf-8")[0:10]+'oi_extf.fits'
+                star_obs_num = star_j
                 
             template_j += 1
             star_j += 1
@@ -60,11 +64,12 @@ def log_scale_interpolation(template_obs, star_obs,k=5):
     # read in the data 
     template = pyfits.open(template_spectrum_dir)
     star = pyfits.open(star_spectrum_dir)
+  
     # apply barycentric velocity correction
-    template_BC = get_BC_vel(template_fits_row[6]+2400000.5, ra = template_fits_row[1][0], dec = template_fits_row[1][1], obsname = 'SSO')
+    template_BC = get_BC_vel(template_fits_row[6][template_obs_num]+2400000.5, ra = template_fits_row[1][0], dec = template_fits_row[1][1], obsname = 'SSO')
     template_delta_lambda = template_BC[0][0]*u.m*u.s**-1/c.c
         
-    star_BC = get_BC_vel(star_fits_row[6]+2400000.5, ra = star_fits_row[1][0], dec = star_fits_row[1][1], obsname = 'SSO')
+    star_BC = get_BC_vel(star_fits_row[6][star_obs_num]+2400000.5, ra = star_fits_row[1][0], dec = star_fits_row[1][1], obsname = 'SSO')
     star_delta_lambda = star_BC[0][0]*u.m*u.s**-1/c.c
     # store data for all fibres
     all_log_w = np.zeros((22600,40))
@@ -171,8 +176,8 @@ def generate_template(file_paths):
     
     Parameters
     ----------
-    file_paths : type - list of strings
-        list of paths to each observation
+    file_paths : type - list of bytes
+        list of fits files with observations to make into template from veloce_observations.fits
     
     Returns
     -------
@@ -190,74 +195,90 @@ def generate_template(file_paths):
     #dd = pyfits.open(file_paths[0])
     template_spectrum = np.zeros([np.shape(flux_t)[0],np.shape(flux_t)[1],np.shape(flux_t)[2]], dtype = object)
     template_spectrum_error = np.zeros([np.shape(flux_t)[0],np.shape(flux_t)[1],np.shape(flux_t)[2]], dtype = object)
-    
+    template_spectrum_one_on_error = np.zeros([np.shape(flux_t)[0],np.shape(flux_t)[1],np.shape(flux_t)[2]], dtype = object)
+   
     # iterate through each observation that is wanted in the template
     num_good_pixels = np.ones([np.shape(flux_t)[0],np.shape(flux_t)[1],np.shape(flux_t)[2]],dtype = object)
     for obs in file_paths:
         print(':0')
-        #dd = pyfits.open(obs)
         wavelength, flux_t, flux_t_err, flux_s, flux_s_err = log_scale_interpolation(file_paths[0],obs)
         # iterate through the fibres
         good_pixels = np.zeros([np.shape(flux_s)[0],np.shape(flux_s)[1],np.shape(flux_s)[2]],dtype = object)
         error_good_pixels = np.zeros([np.shape(flux_s)[0],np.shape(flux_s)[1],np.shape(flux_s)[2]],dtype = object)
+        one_over_error_good_pixels = np.zeros([np.shape(flux_s)[0],np.shape(flux_s)[1],np.shape(flux_s)[2]],dtype = object)
         for fibre in range(19):
             # iterate through the orders
             for order in range(40):
                 # pull out spectrum
                 spectrum = flux_s[:,order,fibre]
-                error = flux_s_err[:,order,fibre]
+                scale = np.median(spectrum)
+                spectrum /= scale
+                error = flux_s_err[:,order,fibre]/scale
+                
                 i = 0
                 while i < len(spectrum):
-                    good_pixels[i, order, fibre] = spectrum[i]
+                    good_pixels[i, order, fibre] = spectrum[i]/error[i]**2
                     error_good_pixels[i,order,fibre] = error[i]
+                    one_over_error_good_pixels[i,order,fibre] = 1/error[i]**2
                     num_good_pixels[i,order,fibre] += 1
                             
                     i += 1
         template_spectrum += good_pixels
         template_spectrum_error += error_good_pixels
+        template_spectrum_one_on_error += one_over_error_good_pixels
     # find the median fibre height to check for bad pixels, only include the stellar fibres
-    template_spectrum /=num_good_pixels
     template_spectrum_error /= num_good_pixels
-    median_fibre_spectrum = np.median(template_spectrum/num_good_pixels,2)
-    median_error_spectrum = np.median(template_spectrum_error/num_good_pixels,2)
+    template_spectrum_one_on_error /= num_good_pixels
+    template_spectrum /=num_good_pixels*template_spectrum_one_on_error
+    template_spectrum_error = (1/template_spectrum_one_on_error)**0.5
+    
+    plt.figure()
+    plt.plot(wavelength,template_spectrum[:,:,10])
+    
+    median_fibre_spectrum = np.median(template_spectrum,2)
+    median_error_spectrum = np.median(template_spectrum_error,2)
     
     # for each fibre, find the median difference between it and median_fibre_spectrum and remove pixels with a difference much larger than this
     template = np.zeros([np.shape(flux_s)[0],np.shape(flux_s)[1]])
     error = np.zeros([np.shape(flux_s)[0],np.shape(flux_s)[1]])
+    one_on_error = np.zeros([np.shape(flux_s)[0],np.shape(flux_s)[1]])
     weights = np.ones([np.shape(flux_s)[0],np.shape(flux_s)[1]])
     
     for fibre in range(19):
+        print(':|')
         diff = [abs(template_spectrum[:,:,fibre] - median_fibre_spectrum[:,:])]
         med_diff = np.median(diff)
         # the distance from the median difference for each point
-        diff = abs(diff - med_diff)[0,:,:]       
-        
+        diff = abs(diff - med_diff)[0,:,:]
         
         # for each point in each fibre keep in template if difference to median spectrum - median distance/median distance is less than 1.1
-        for order in range(40):
+        for order in range(np.shape(diff)[1]):
+            scale = np.median(template_spectrum[:,order,fibre])
+            
             for wave in range(np.shape(diff)[0]):
                 # only include a value if it is within __ of the median value
-                if diff[wave,order]/med_diff<=2:
+                if (diff[wave,order]/med_diff<=2) & (template_spectrum[wave,order,fibre]>3*template_spectrum_error[wave,order,fibre]):
                     # add one to the weight for this wavelength to compute the weighted average
                     weights[wave,order] += 1
                     # add spectrum value to this wavelength position in template
-                    template[wave,order] += template_spectrum[wave,order,fibre]
-                    error[wave,order] += template_spectrum_error[wave,order,fibre]
+                    template[wave,order] += (template_spectrum[wave,order,fibre]/scale)/(template_spectrum_error[wave,order,fibre]**2/scale**2)
+                    error[wave,order] += template_spectrum_error[wave,order,fibre]/scale
+                    one_on_error[wave,order] += scale**2/template_spectrum_error[wave,order,fibre]**2
+                   
                     
     # define the wavelength scale, choose any fibre as all the same
-    #wavelength = dd[1].data[:,:,5].copy()
-    template /= weights
     error /= weights
+    one_on_error /= weights
+    template /= weights*one_on_error
+    error = (1/one_on_error)**0.5
     # set all 0 values to NaN and values which have a low signal to noise
     for order in range(40):
         for wave in range(np.shape(diff)[0]):
-            if (template[wave,order]==0) | (template[wave,order]<3*error[wave,order]):
+            if (template[wave,order]==0)| (template[wave,order]<3*error[wave,order]):
                 template[wave,order] = np.nan
                 wavelength[wave,order] = np.nan
     plt.figure()
     plt.plot(wavelength,template)
-    plt.figure()
-    plt.plot(wavelength,median_fibre_spectrum)
     plt.show()
   
     # return the template spectrum with weighted average
@@ -267,18 +288,82 @@ testing_temp_files = ['11dec30096o.fits', '11dec30097o.fits', '12dec30132o.fits'
 
 w, s, e = generate_template(testing_temp_files)
 
-primary_hdu = pyfits.PrimaryHDU(s)
-image_hdu = pyfits.ImageHDU(w)
-image_hdu2 = pyfits.ImageHDU(e)
-hdul = pyfits.HDUList([primary_hdu, image_hdu, image_hdu2])
-hdul.writeto('Tau_Ceti_Template_dec2019.fits')
+#primary_hdu = pyfits.PrimaryHDU(s)
+#image_hdu = pyfits.ImageHDU(w)
+#image_hdu2 = pyfits.ImageHDU(e)
+#hdul = pyfits.HDUList([primary_hdu, image_hdu, image_hdu2])
+#hdul.writeto('Tau_Ceti_Template_dec2019.fits')
 
-#c1 = pyfits.Column(name='Flux', format='E',array=s)
-#c2 = pyfits.Column(name='Wavelength', format='E', array=w)
-#c3 = pyfits.Column(name='Flux Error', format='E', array=e)
-#cols = pyfits.ColDefs([c1,c2,c3])
-#t = pyfits.BinTableHDU.from_columns(cols)
-#t.writeto('table2.fits')
+def telluric_correction(obs_night):
+    """
+    Description
+    -----------
+    This code will provide a telluric correction for the nights in the template
+    
+    Parameters
+    ----------
+    obs_night : type - byte
+        night in format yymmdd for observation to find telluric standard
+    
+    Returns
+    -------
+    bstars : type - list of lists
+        list containing all observations which were BSTARS from given obs_night, each element is a list containing the name of the object, the fits file and the directory
+    """ 
+    dd = Table.read('veloce_observations.fits')
+    dd = dd[dd['obs_type']=='BSTAR']
+    bstars = []
+    for obs in dd:
+         i = 0
+         for dire in obs[8]:
+            i +=1
+            if dire == obs_night:
+                bstars.append([obs[0],obs[7][i],obs[8][i]])
+    telluric_star = bstars[-1]
+    wavelength, flux_t, flux_t_err, flux_s, flux_s_err = log_scale_interpolation(telluric_star[1].decode('utf-8'),telluric_star[1].decode('utf-8'))
+   
+    telluric_spec = np.zeros([np.shape(flux_s)[0],np.shape(flux_s)[1]])
+    error_spec = np.zeros([np.shape(flux_s)[0],np.shape(flux_s)[1]])
+    over_error_spec = np.zeros([np.shape(flux_s)[0],np.shape(flux_s)[1]])
+    weights = np.ones([np.shape(flux_s)[0],np.shape(flux_s)[1]])
+
+    for fibre in range(19):
+        print(fibre)
+        for order in range(40):
+            scale = np.median(flux_s[:,order,fibre])
+            spectrum = flux_s[:,order,fibre]/scale
+            error = flux_s_err[:,order,fibre]/scale
+            for i in range(22600):
+                if flux_s[i,order,fibre]> 3*flux_s_err[i,order,fibre]:
+                    telluric_spec[i,order] += (flux_s[i,order,fibre]/scale)/(flux_s_err[i,order,fibre]/scale)**2
+                    error_spec[i,order] += error[i]
+                    over_error_spec[i,order] += scale**2/flux_s_err[i,order,fibre]**2
+                    weights[i,order] += 1
+    telluric_spec /= over_error_spec*weights
+    over_error_spec /= weights
+    error_spec = (1/over_error_spec)**0.5
+    
+    for order in range(40):
+        for wave in range(np.shape(telluric_spec)[0]):
+            if (telluric_spec[wave,order]==0):# | (telluric_spec[wave,order]< 3*error_spec[wave,order]):
+                telluric_spec[wave,order] = np.nan
+                wavelength[wave,order] = np.nan
+    
+    plt.figure()             
+    plt.plot(wavelength,telluric_spec)
+    plt.figure()
+    plt.plot(wavelength,flux_s[:,:,13])
+    plt.show()
+                
+                                     
+    return bstars
+    
+# test telluric_correction
+dd = Table.read('veloce_observations.fits')
+bstar = telluric_correction(dd[0][8][0])
+
+test = bstar[0]
+test_data = pyfits.open('/priv/avatar/velocedata/Data/spec_211202/'+test[2].decode('utf-8')+'/'+test[1].decode('utf-8')[0:10]+'oi_extf.fits')
 
 def calc_rv_corr(file_path, observation_dir, star_spectrum_dir, k=5):
     # generate a template and wavelength scale
