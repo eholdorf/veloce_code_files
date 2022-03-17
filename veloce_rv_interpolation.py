@@ -9,7 +9,7 @@ import astropy.constants as c
 import astropy.units as u
 from barycorrpy import get_BC_vel
 
-def log_scale_interpolation(template_obs, star_obs,k=5, BC = True):
+def log_scale_interpolation(template_obs, star_obs,k=5, BC = False):
     """
     Description
     -----------
@@ -26,7 +26,7 @@ def log_scale_interpolation(template_obs, star_obs,k=5, BC = True):
     k : type - int (optional : default = 5)
         order of the spline between interpolation points   
         
-    BC : type - boolean (optional : default = True)
+    BC : type - boolean (optional : default = False)
     
     Returns
     -------
@@ -79,8 +79,8 @@ def log_scale_interpolation(template_obs, star_obs,k=5, BC = True):
         star_BC = get_BC_vel(star_fits_row[6][star_obs_num]+2400000.5, ra = star_fits_row[1][0], dec = star_fits_row[1][1], obsname = 'SSO')
         star_delta_lambda = star_BC[0][0]*u.m*u.s**-1/c.c
     else:
-        template_delta_lambda = 1*u.m
-        star_delta_lambda = 1*u.m
+        template_delta_lambda = 0*u.m
+        star_delta_lambda = 0*u.m
     # store data for all fibres
     all_log_w = np.zeros((22600,40))
     
@@ -152,6 +152,7 @@ def log_scale_interpolation(template_obs, star_obs,k=5, BC = True):
             # extract the wavelengths and flux values which aren't NaN for template and star
             s_w = star[1].data[:,order,fibre][~s_mask]
             s_w += star_delta_lambda.value*s_w
+            # this line just for Tau Ceti
             s_f = star[0].data[:,order,fibre][~s_mask]
             s_e = star[2].data[:,order,fibre][~s_mask]
             
@@ -298,6 +299,47 @@ def telluric_correction(scale_star, obs_night, time):
 #test = bstar[0]
 #test_data = pyfits.open('/priv/avatar/velocedata/Data/spec_211202/'+test[2].decode('utf-8')+'/'+test[1].decode('utf-8')[0:10]+'oi_extf.fits')
 
+def barycentric_correction(template_obs, star_obs):
+    veloce_obs = Table.read('veloce_observations.fits')
+    template_i = 0
+    template_j = 0
+    template_obs_num = 0
+    star_i = 0
+    star_j = 0
+    star_obs_num = 0
+    for star in veloce_obs:
+        template_j = 0
+        star_j = 0
+        for obs in star[7]:
+            if obs.decode("utf-8") == template_obs:
+                template_fits_row = veloce_obs[template_i]
+                template_spectrum_dir = '/priv/avatar/velocedata/Data/spec_211202/'+veloce_obs[template_i][8][template_j].decode("utf-8")+'/'+obs.decode("utf-8")[0:10]+'oi_extf.fits'
+                template_obs_num = template_j
+                airmass_template = pyfits.open(template_spectrum_dir)[0].header['AIRMASS']
+                
+            if obs.decode("utf-8") == star_obs:
+                star_fits_row = veloce_obs[star_i]
+                star_spectrum_dir = '/priv/avatar/velocedata/Data/spec_211202/'+veloce_obs[star_i][8][star_j].decode("utf-8")+'/'+obs.decode("utf-8")[0:10]+'oi_extf.fits'
+                star_obs_num = star_j
+                airmass_star = pyfits.open(star_spectrum_dir)[0].header['AIRMASS']
+                
+            template_j += 1
+            star_j += 1
+        template_i += 1 
+        star_i += 1   
+    # read in the data 
+    template = pyfits.open(template_spectrum_dir)
+    star = pyfits.open(star_spectrum_dir)
+    
+    
+    # apply barycentric velocity correction
+    template_BC = get_BC_vel(template_fits_row[6][template_obs_num]+2400000.5, ra = template_fits_row[1][0], dec = template_fits_row[1][1], obsname = 'SSO')
+    template_delta_lambda = template_BC[0][0]*u.m*u.s**-1/c.c
+            
+    star_BC = get_BC_vel(star_fits_row[6][star_obs_num]+2400000.5, ra = star_fits_row[1][0], dec = star_fits_row[1][1], obsname = 'SSO')
+    star_delta_lambda = star_BC[0][0]*u.m*u.s**-1/c.c
+    
+    return template_delta_lambda.value, star_delta_lambda.value
 
 def generate_template(file_paths):
     """
@@ -344,11 +386,13 @@ def generate_template(file_paths):
             telluric_spec = telluric_spec_a
             print('only one')
 
-        wavelength, flux_t, flux_t_err, flux_s, flux_s_err, airmass = log_scale_interpolation(file_paths[0],obs)
+        wavelength, flux_t, flux_t_err, flux_s, flux_s_err, airmass = log_scale_interpolation(file_paths[0],obs,BC=False)
         for fibre in range(19):
             flux_s[:,:,fibre] /= telluric_spec
-            flux_s_err[:,:,fibre] /= telluric_spec
+            #flux_s_err[:,:,fibre] /= telluric_spec
+        template_delta_lambda, star_delta_lambda = barycentric_correction(file_paths[0],obs)    
         # iterate through the fibres
+        wavelength += star_delta_lambda*wavelength
         good_pixels = np.zeros([np.shape(flux_s)[0],np.shape(flux_s)[1],np.shape(flux_s)[2]],dtype = object)
         error_good_pixels = np.zeros([np.shape(flux_s)[0],np.shape(flux_s)[1],np.shape(flux_s)[2]],dtype = object)
         one_over_error_good_pixels = np.zeros([np.shape(flux_s)[0],np.shape(flux_s)[1],np.shape(flux_s)[2]],dtype = object)
@@ -433,11 +477,11 @@ testing_temp_files = ['11dec30096o.fits', '11dec30097o.fits', '12dec30132o.fits'
 
 w, s, e = generate_template(testing_temp_files)
 
-#primary_hdu = pyfits.PrimaryHDU(s)
-#image_hdu = pyfits.ImageHDU(w)
-#image_hdu2 = pyfits.ImageHDU(e)
-#hdul = pyfits.HDUList([primary_hdu, image_hdu, image_hdu2])
-#hdul.writeto('Tau_Ceti_Template_dec2019.fits')
+primary_hdu = pyfits.PrimaryHDU(s)
+image_hdu = pyfits.ImageHDU(w)
+image_hdu2 = pyfits.ImageHDU(e)
+hdul = pyfits.HDUList([primary_hdu, image_hdu, image_hdu2])
+hdul.writeto('Tau_Ceti_Template_dec2019_tellcor_1.fits')
 
 
 def calc_rv_corr(file_path, observation_dir, star_spectrum_dir, k=5):

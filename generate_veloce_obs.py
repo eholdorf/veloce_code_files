@@ -216,6 +216,7 @@ toi_dec = np.array(toi_dec)[mask]
 toi_size = np.array(toi_size)[mask]
 
 plt.figure()
+plt.rcParams.update({'font.size': 15})
 plt.scatter(toi_ra[6],toi_dec[6], s=200, c= bp_rp[6],cmap = 'Greys', label = '200')
 plt.scatter(toi_ra[50],toi_dec[50], s=toi_size[50], c= bp_rp[50],cmap = 'Greys', label = str(toi_size[50]))
 plt.scatter(toi_ra[51],toi_dec[51], s=toi_size[51], c= bp_rp[51],cmap = 'Greys', label = str(toi_size[51]))
@@ -242,8 +243,8 @@ for star in fits:
     print(count)
     count+=1
 print(directories)
-t = Table([star_names, uniq_radec,obs_type,num_obs,Teff,K_pl, jds, fits,directories], names = ('star_names','ra_dec','obs_type','number_obs','T_eff','K_pl','julian_obs_dates', 'fits_names','directory'))
-t.write('veloce_observations.fits', format = 'fits')
+#t = Table([star_names, uniq_radec,obs_type,num_obs,Teff,K_pl, jds, fits,directories], names = ('star_names','ra_dec','obs_type','number_obs','T_eff','K_pl','julian_obs_dates', 'fits_names','directory'))
+#t.write('veloce_observations.fits', format = 'fits')
 
 
 
