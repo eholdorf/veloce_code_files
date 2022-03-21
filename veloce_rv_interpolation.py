@@ -8,37 +8,54 @@ import get_observations
 import astropy.constants as c
 import astropy.units as u
 from barycorrpy import get_BC_vel
+import scipy.optimize as opt
 
-def log_scale_interpolation(template_obs, star_obs,k=5, BC = False):
+def log_scale_interpolation(template_obs, star_obs,k=5, BC = False, num_points = 22600):
     """
     Description
     -----------
-    This code will put a template spectrum and star spectrum onto a log wavelength scale.
+    This code will put a template spectrum and star spectrum onto a common evenly log spaced wavelength grid.
     
     Parameters
     ----------
-    template_spectrum_dir : type - string
-        directory for the template data
+    template_obs: type - string
+        fits file name from veloce_observations.fits that the wavelength scale is being shifted to (e.g. '11dec30096o.fits')
         
-    star_spectrum_dir : type - string
-        directory for the data for observed star     
+    star_obs : type - string
+        fits file name from veloce_observations.fits that will have the wavelength scale shifted to template_obs (e.g. '11dec30096o.fits')  
     
     k : type - int (optional : default = 5)
-        order of the spline between interpolation points   
+        order of the spline between interpolation points, choose from 1, 2, 3, 4 or 5
         
     BC : type - boolean (optional : default = False)
+        True if want to also apply a barycentric velocity correction
+        False if don't want to apply a barycentric velocity correction
+    
+    num_points : type - int (optional : default = 22 600)
+        This is the number of points desired in the final interpolation for each order.
     
     Returns
     -------
-    all_log_w : type - list of lists
-        list of log scale wavelength grid for each fibre
+    all_log_w : type - numpy nd-array 
+        evenly log scaled wavlength grid for the stellar fibres which has shape = wavelength x order x fibre = num_points x 40 x 19
     
-    t_logflux : type - list of lists
-        list of flux for template on log wavelength grid for each fibre
+    t_logflux : type - numpy np-array
+        interpolated flux for template_obs which has shape = wavelength x order x fibre = num_points x 40 x 19
+        
+    t_logerrflux : type - numpy np-array
+        interpolated flux error for template_obs which has shape = wavelength x order x fibre = num_points x 40 x 19
     
-    s_logflux : type - list of lists
-        list of flux for star on log wavelength grid for each fibre
+    s_logflux : type - numpy np-array
+        interpolated flux for star_obs which has shape = wavelength x order x fibre = num_points x 40 x 19
+    
+    s_logerrflux : type - numpy np-array
+        interpolated flux error for star_obs which has shape = wavelength x order x fibre = num_points x 40 x 19
+        
+    airmasses : type - list
+        element 0 is the airmass for template_obs observation
+        element 1 is the airmass for star_obs obervation
     """
+    # find the observation in the veloce_observations.fits file and store the location in the MSO storage and the airmass
     veloce_obs = Table.read('veloce_observations.fits')
     template_i = 0
     template_j = 0
@@ -66,7 +83,7 @@ def log_scale_interpolation(template_obs, star_obs,k=5, BC = False):
             star_j += 1
         template_i += 1 
         star_i += 1   
-    # read in the data 
+    # read in the data with found directory
     template = pyfits.open(template_spectrum_dir)
     star = pyfits.open(star_spectrum_dir)
     
@@ -78,53 +95,57 @@ def log_scale_interpolation(template_obs, star_obs,k=5, BC = False):
             
         star_BC = get_BC_vel(star_fits_row[6][star_obs_num]+2400000.5, ra = star_fits_row[1][0], dec = star_fits_row[1][1], obsname = 'SSO')
         star_delta_lambda = star_BC[0][0]*u.m*u.s**-1/c.c
+    # if no barycentric correction, then make the shift equal to 0
     else:
         template_delta_lambda = 0*u.m
         star_delta_lambda = 0*u.m
-    # store data for all fibres
-    all_log_w = np.zeros((22600,40))
+    # make numpy nd-arrays to store data for all fibre data
+    all_log_w = np.zeros((num_points,40))
     
-    all_t_logflux = np.zeros((22600,40,19))
-    all_t_logerrflux = np.zeros((22600,40,19))
+    all_t_logflux = np.zeros((num_points,40,19))
+    all_t_logerrflux = np.zeros((num_points,40,19))
         
-    all_s_logflux = np.zeros((22600,40,19))
-    all_s_logerrflux = np.zeros((22600,40,19))
+    all_s_logflux = np.zeros((num_points,40,19))
+    all_s_logerrflux = np.zeros((num_points,40,19))
     
     # set the wavelength scale for a single fibre
-    t_logflux = np.zeros((22600,40))
-    t_logerrflux = np.zeros((22600,40))
+    t_logflux = np.zeros((num_points,40))
+    t_logerrflux = np.zeros((num_points,40))
     
     for order in range(len(template[1].data[0,:,4])):
-        # make a mask to remove all of the NaN values in spectrum for template and star
+        # make a mask to remove all of the NaN values in spectrum for the first stellar fibre in the template
         t_mask = np.isnan(template[0].data[:,order,4])
-        # extract the wavelengths and flux values which aren't NaN for template and star
+        # extract the wavelengths and flux values which aren't NaN for first fibre in the template
         t_w = template[1].data[:,order,4][~t_mask]
+        # apply the barycentric correction
         t_w += template_delta_lambda.value*t_w
         t_f = template[0].data[:,order,4][~t_mask]
         t_e = template[2].data[:,order,4][~t_mask]
-        # create a log scale from min wavelength to max wavelength of template with 22600 points and add this to the overall wavelength scale
-        new_log_w = np.min(t_w)*np.exp(np.log(np.max(t_w)/np.min(t_w))/22600*np.arange(22600))
+        # create a log scale from min wavelength to max wavelength of template with num_points points and save this to the overall wavelength scale
+        new_log_w = np.min(t_w)*np.exp(np.log(np.max(t_w)/np.min(t_w))/num_points*np.arange(num_points))
         all_log_w[:,order] = new_log_w
-        #generate a function that will interpolate the flux for new wavelength scale
+        #generate a function that will interpolate the flux and flux error for new wavelength scale
         t_poly = InterpolatedUnivariateSpline(t_w,t_f,k=k)
         t_err_poly = InterpolatedUnivariateSpline(t_w,t_e,k=k)
-        # evaluate the flux with the new wavelength scale
+        # evaluate the flux and flux error with the new wavelength scale
         t_logflux[:,order] = t_poly(new_log_w)
         t_logerrflux[:,order] = t_err_poly(new_log_w)
+    # save the flux and flux error data for the first stellar fibre
     all_t_logerrflux[:,:,0] = t_logerrflux
     all_t_logflux[:,:,0] = t_logflux
     
     
-    # only choose stellar fibres
+    # for the remaining stellar fibres repeat the above process
     for fibre in range(5,23):
-        # define wavelength scale for each fibre
-        t_logflux = np.zeros((22600,40))
-        t_logerrflux = np.zeros((22600,40))
+        # create numpy nd-arrays to save flux and flux error data
+        t_logflux = np.zeros((num_points,40))
+        t_logerrflux = np.zeros((num_points,40))
         for order in range(len(template[1].data[0,:,fibre])):
-            # make a mask to remove all of the NaN values in spectrum for template and star
+            # make a mask to remove all of the NaN values in spectrum for this fibre in the template
             t_mask = np.isnan(template[0].data[:,order,fibre])
-            # extract the wavelengths and flux values which aren't NaN for template and star
+            # extract the wavelengths and flux values which aren't NaN for this fibre in the template
             t_w = template[1].data[:,order,fibre][~t_mask]
+            # apply the barycentric correction
             t_w += template_delta_lambda.value*t_w
             t_f = template[0].data[:,order,fibre][~t_mask]
             t_e = template[2].data[:,order,fibre][~t_mask]
@@ -132,11 +153,11 @@ def log_scale_interpolation(template_obs, star_obs,k=5, BC = False):
             #generate a function that will interpolate the flux for new wavelength scale
             t_poly = InterpolatedUnivariateSpline(t_w,t_f,k=k)
             t_err_poly = InterpolatedUnivariateSpline(t_w,t_e,k=k)
-            # evaluate the flux with the new wavelength scale
             
+            # evaluate the flux with the new wavelength scale (from the one developed for the first fibre so all will be the same)
             t_logflux[:,order] = t_poly(all_log_w[:,order])
             t_logerrflux[:,order] = t_err_poly(all_log_w[:,order])
-            
+        # save the flux and flux error    
         all_t_logflux[:,:,fibre-4] = t_logflux
         all_t_logerrflux[:,:,fibre-4] = t_logerrflux
         
@@ -144,13 +165,16 @@ def log_scale_interpolation(template_obs, star_obs,k=5, BC = False):
     # only choose stellar fibres
     for fibre in range(4,23):
         # define wavelength scale for each fibre
-        s_logflux = np.zeros((22600,40))
-        s_logerrflux = np.zeros((22600,40))
+        s_logflux = np.zeros((num_points,40))
+        s_logerrflux = np.zeros((num_points,40))
+        
+        # iterate over each of the orders
         for order in range(len(template[1].data[0,:,fibre])):
             # make a mask to remove all of the NaN values in spectrum for template and star
             s_mask = np.isnan(star[0].data[:,order,fibre])
             # extract the wavelengths and flux values which aren't NaN for template and star
             s_w = star[1].data[:,order,fibre][~s_mask]
+            # apply the barycentric correction
             s_w += star_delta_lambda.value*s_w
             # this line just for Tau Ceti
             s_f = star[0].data[:,order,fibre][~s_mask]
@@ -162,23 +186,47 @@ def log_scale_interpolation(template_obs, star_obs,k=5, BC = False):
             # evaluate the flux with the new wavelength scale
             s_logflux[:,order] = s_poly(all_log_w[:,order])
             s_logerrflux[:,order] = s_err_poly(all_log_w[:,order])
-            
+        
+        # save the flux and flux error
         all_s_logflux[:,:,fibre-4] = s_logflux
         all_s_logerrflux[:,:,fibre-4] = s_logerrflux
+    
+    # save the airmasses for the template and for the star observations
+    airmasses = [airmass_template, airmass_star]
         
-    return all_log_w, all_t_logflux, all_t_logerrflux, all_s_logflux, all_s_logerrflux, [airmass_template, airmass_star]
+    return all_log_w, all_t_logflux, all_t_logerrflux, all_s_logflux, all_s_logerrflux, airmasses
 
-#testing code for a star  
-#w,t,terr,s,serr,airmass = log_scale_interpolation('11dec30096o.fits','11dec30096o.fits')
-
-# test make_template
-file_path = '/priv/avatar/velocedata/Data/spec_211202/'
-
-# Tau Ceti (HD10700) template from dec 2019
-
-TC_observation_dir = ['191211/11dec30096oi_extf.fits', '191211/11dec30097oi_extf.fits', '191212/12dec30132oi_extf.fits', '191212/12dec30133oi_extf.fits','191212/12dec30134oi_extf.fits', '191213/13dec30076oi_extf.fits', '191213/13dec30077oi_extf.fits', '191214/14dec30066oi_extf.fits', '191214/14dec30067oi_extf.fits', '191214/14dec30068oi_extf.fits', '191215/15dec30097oi_extf.fits', '191215/15dec30098oi_extf.fits', '191215/15dec30099oi_extf.fits']
 
 def find_telluric_star(obs_night, time):
+    """
+    Description
+    -----------
+    This code will find a telluric star observation for a given input observation which is : closest to this observation but before it, closest to this observation but after it, or is the closest observation regardless.
+    
+    Parameters
+    ----------
+    obs_night : type - string
+        fits file name from veloce_observations.fits that a telluric star is required for (e.g. '11dec30096o.fits')
+        
+    time : type - string
+        time wanted for the telluric star relative to the time of obs_night, choose from 'before', 'after' or 'closest'
+    
+    Returns
+    -------
+    science_target : type - list
+        this list contains four elements
+        element 0 - string : name of the star in the obs_night observation
+        element 1 - byte (string) : observation fits file name as in veloce_observations.fits
+        element 2 - byte (int) : date of the observation as in veloce_observations.fits
+        element 3 - byte (float) : modified julian date for the observation
+    
+    telluric_star : type - list
+        this list contains four elements
+        element 0 - string : name of the telluric star found
+        element 1 - byte (string) : telluric fits file name as in veloce_observations.fits
+        element 2 - byte (int) : date of the telluric star observation as in veloce_observations.fits
+        element 3 - byte (float) : modified julian date for the telluric star observation
+    """
     # read in the fits file with all of the information for Veloce observations
     dd = Table.read('veloce_observations.fits')
     # get info for observation want to telluric correct
@@ -191,15 +239,19 @@ def find_telluric_star(obs_night, time):
                 break
             i += 1
                 
-    # isolate the BSTAR observations (can use as telluric standards
+    # isolate the BSTAR observations (can use as telluric standards)
     dd = dd[dd['obs_type']=='BSTAR']
     
-    # for each BSTAR, see if it was observed on the desired night
+    # define variable a which depends on what time want the observations (use this as a measure of how far a telluric observation is from the desired time)
     if time == 'before':
         a = -10e10
     else:       
         a = 10e10
+    
+    # set up a generic list for the telluric star information    
     telluric_star = [0,0,0,a]
+    
+    # for each BSTAR observation, if observed on the same day and was taken closer in time to the star observation, then save this as the telluric star, otherwise repeat
     for obs in dd:
          i = 0
          for dire in obs[8]:
@@ -216,16 +268,11 @@ def find_telluric_star(obs_night, time):
                 elif time == 'closest' and abs(time_diff)<abs(science_target[3] - telluric_star[3]):
                     telluric_star = [obs[0],obs[7][i],obs[8][i],obs[6][i]]
 
-    print(telluric_star)
+    # if couldn't find an observation that fit the time criteria, then repeat this process except look for the closest telluric observation
     if telluric_star == [0,0,0,a]:
         science_target, telluric_star = find_telluric_star(obs_night, 'closest')
     return science_target, telluric_star
 
-# testing finding telluric stars    
-#st, ts = find_telluric_star('15dec30098o.fits','closest')
-
-#print(st)
-#print(ts)
 
 def telluric_correction(scale_star, obs_night, time):
     """
@@ -235,18 +282,43 @@ def telluric_correction(scale_star, obs_night, time):
     
     Parameters
     ----------
-    obs_night : type - str
-        fits file of observation to make telluric correction
-    
-    time : type - str
-        time desired for telluric correction, "before", "after" or "closest"
+    scale_star : type - string
+        fits file from veloce_observations.fits which is the observation to move the wavelength scale to
+        
+    obs_night : type - string
+        fits file name from veloce_observations.fits that a telluric star is required for (e.g. '11dec30096o.fits')
+        
+    time : type - string
+        time wanted for the telluric star relative to the time of obs_night, choose from 'before', 'after' or 'closest'
+        
     Returns
     -------
-    bstars : type - list of lists
-        list containing all observations which were BSTARS from given obs_night, each element is a list containing the name of the object, the fits file and the directory
+    wavelegnth : type - numpy nd-array
+        evenly log scaled wavlength grid for the stellar fibres which has a shape = wavelength x order = 22 600 x 40
+    
+    telluric_spec : type - numpy np-array
+        flux for telluric observation which has been weighted averaged over all of the stellar fibres and had an airmass correction applied which has a shape = wavelength x order = 22 600 x 40
+    
+    error_spec : type - numpy nd-array
+        error flux for telluric observation which has been weighted averaged over all of the stellar fibres and had an airmass correction applied which has a shape = wavelength x order = 22 600 x 40
+    
+    target_star : type - list
+        this list contains four elements
+        element 0 - string : name of the star in the obs_night observation
+        element 1 - byte (string) : observation fits file name as in veloce_observations.fits
+        element 2 - byte (int) : date of the observation as in veloce_observations.fits
+        element 3 - byte (float) : modified julian date for the observation
+    
+    telluric_star : type - list
+        this list contains four elements
+        element 0 - string : name of the telluric star found
+        element 1 - byte (string) : telluric fits file name as in veloce_observations.fits
+        element 2 - byte (int) : date of the telluric star observation as in veloce_observations.fits
+        element 3 - byte (float) : modified julian date for the telluric star observation
     """ 
+    # find a telluric star for the given observation
     target_star, telluric_star = find_telluric_star(obs_night, time)
-    # scrunch the data
+    # scrunch the data for both the telluric star and observation onto scale_star wavelength scale with no barycentric correction
     wavelength, flux_scale, flux_scale_err, flux_telluric, flux_telluric_err, airmass_telluric = log_scale_interpolation(scale_star,telluric_star[1].decode('utf-8'), BC = False)
     wavelength, flux_scale, flux_scale_err, flux_star, flux_star_err, airmass_star = log_scale_interpolation(scale_star,target_star[1].decode('utf-8'), BC = False)
 
@@ -260,9 +332,12 @@ def telluric_correction(scale_star, obs_night, time):
     for fibre in range(19):
         print(fibre)
         for order in range(40):
+            # find the scale factor that the order needs to be shifted by to make flat spectrum
             scale = np.median(flux_telluric[:,order,fibre])
             for i in range(22600):
+                # check the signal to noise, want to be greater than 3
                 if flux_telluric[i,order,fibre]> 3*flux_telluric_err[i,order,fibre]:
+                    # apply the weighted average 
                     telluric_spec[i,order] += (flux_telluric[i,order,fibre]/scale)/(flux_telluric_err[i,order,fibre]/scale)**2
                     error_spec[i,order] += flux_telluric_err[i,order,fibre]/scale
                     over_error_spec[i,order] += scale**2/flux_telluric_err[i,order,fibre]**2
@@ -271,35 +346,40 @@ def telluric_correction(scale_star, obs_night, time):
     over_error_spec /= weights
     error_spec = (1/over_error_spec)**0.5
     
+    # if a value is equal to 0 (as it didn't have a high enough signal to noise) then set it to be NaN
     for order in range(40):
         for wave in range(np.shape(telluric_spec)[0]):
             if (telluric_spec[wave,order]==0):
                 telluric_spec[wave,order] = np.nan
                 wavelength[wave,order] = np.nan
-                
+    # apply an airmass correction           
     telluric_spec = telluric_spec**(airmass_star[1]/airmass_telluric[1])
-    
-    #plt.figure()             
-    #plt.plot(wavelength,telluric_spec)
-    #plt.show()
-                
-                                     
+                       
     return wavelength, telluric_spec, error_spec, target_star, telluric_star
-    
-# test telluric_correction
-#dd = Table.read('veloce_observations.fits')
-#w_t, s_t, e_t = telluric_correction('15dec30098o.fits','closest')
-
-#primary_hdu = pyfits.PrimaryHDU(s_t)
-#image_hdu = pyfits.ImageHDU(w_t)
-#image_hdu2 = pyfits.ImageHDU(e_t)
-#hdul = pyfits.HDUList([primary_hdu, image_hdu, image_hdu2])
-#hdul.writeto('telluric_13dec2019.fits')
-
-#test = bstar[0]
-#test_data = pyfits.open('/priv/avatar/velocedata/Data/spec_211202/'+test[2].decode('utf-8')+'/'+test[1].decode('utf-8')[0:10]+'oi_extf.fits')
 
 def barycentric_correction(template_obs, star_obs):
+    """
+    Description
+    -----------
+    This code will put a template spectrum and star spectrum onto a common evenly log spaced wavelength grid.
+    
+    Parameters
+    ----------
+    template_obs: type - string
+        fits file name from veloce_observations.fits that the wavelength scale is being shifted to (e.g. '11dec30096o.fits')
+        
+    star_obs : type - string
+        fits file name from veloce_observations.fits that will have the wavelength scale shifted to template_obs (e.g. '11dec30096o.fits')  
+    
+    Returns
+    -------
+    template_delta_lambda.value : type - float
+        v/c for template_obs where v is the barycentric velocity
+    
+    star_delta_lambda.value : type - float
+        v/c for star_obs where v is the barycentric velocity
+    """
+    # find and save the information for the template and for the star obervations which are found in veloce_observations.fits file
     veloce_obs = Table.read('veloce_observations.fits')
     template_i = 0
     template_j = 0
@@ -332,14 +412,15 @@ def barycentric_correction(template_obs, star_obs):
     star = pyfits.open(star_spectrum_dir)
     
     
-    # apply barycentric velocity correction
+    # calculate barycentric velocity correction for the template and for the star (v/c)
     template_BC = get_BC_vel(template_fits_row[6][template_obs_num]+2400000.5, ra = template_fits_row[1][0], dec = template_fits_row[1][1], obsname = 'SSO')
-    template_delta_lambda = template_BC[0][0]*u.m*u.s**-1/c.c
+    template_delta_lambda = template_BC[0][0]*u.m*u.s**-1/(c.c.to(u.m/u.s))
             
     star_BC = get_BC_vel(star_fits_row[6][star_obs_num]+2400000.5, ra = star_fits_row[1][0], dec = star_fits_row[1][1], obsname = 'SSO')
     star_delta_lambda = star_BC[0][0]*u.m*u.s**-1/c.c
     
     return template_delta_lambda.value, star_delta_lambda.value
+    
 
 def generate_template(file_paths):
     """
@@ -349,21 +430,21 @@ def generate_template(file_paths):
     
     Parameters
     ----------
-    file_paths : type - list of bytes
-        list of fits files with observations to make into template from veloce_observations.fits
+    file_paths : type - list
+        each element is a string for a fits files with observations to make into template from veloce_observations.fits, typically these observations will come from observations from a few consecutive nights of observations with good observing conditions
     
     Returns
     -------
-    wavelength : type - list of lists
-        the log wavelength scale
+    wavelength : type - numpy nd-array
+        evenly spaced log wavelength grid which has a shape = wavelength x order = 22 600 x 40
     
-    template : type - list of lists
-        the weighted average (between fibres) template spectrum
+    template : type - numpy nd-array
+        the tellurically corrected weighted average between observations and fibres template spectrum which has a shape = wavelength x order = 22 600 x 40
     
-    error_template : type - list of lists
-        the error for each point on the template
-    """    
-    # scrunch the data
+    error_template : type - numpy nd-array
+        error spectrum for the template which has a shape = wavelength x order = 22 600 x 40
+     """    
+    # scrunch the observation data for first observation to get sizes for lists
     wavelength, flux_t, flux_t_err, flux_s, flux_s_err,airmass = log_scale_interpolation(file_paths[0],file_paths[0])
     
     # generate a blank spectrum template to fill
@@ -379,40 +460,47 @@ def generate_template(file_paths):
         wave_tell_b, telluric_spec_b, telluric_err_spec_b, target_info_b, telluric_info_b = telluric_correction(file_paths[0],obs, 'before')
         wave_tell_a, telluric_spec_a, telluric_err_spec_a, target_info_a, telluric_info_a = telluric_correction(file_paths[0],obs, 'after')
         
-        # take the time weighted average of the before and after telluric spectra
+        # take the time weighted average of the before and after telluric spectra, if there was only one, then no need for this step
         if telluric_info_a[3]!= telluric_info_b[3]:
             telluric_spec = (telluric_spec_a*(target_info_b[3] - telluric_info_b[3]) + telluric_spec_b*(target_info_a[3] - telluric_info_a[3]))/(telluric_info_a[3]-telluric_info_b[3])
         else:
             telluric_spec = telluric_spec_a
-            print('only one')
-
+        # scrunch the observation data
         wavelength, flux_t, flux_t_err, flux_s, flux_s_err, airmass = log_scale_interpolation(file_paths[0],obs,BC=False)
+        
+        # for each fibre in the observation, divide by the telluric spectrum
         for fibre in range(19):
             flux_s[:,:,fibre] /= telluric_spec
-            #flux_s_err[:,:,fibre] /= telluric_spec
-        template_delta_lambda, star_delta_lambda = barycentric_correction(file_paths[0],obs)    
-        # iterate through the fibres
+        
+        # calculate the barycentric correction for the observation
+        template_delta_lambda, star_delta_lambda = barycentric_correction(file_paths[0],obs)   
+         
+        # apply the barycentric correction
         wavelength += star_delta_lambda*wavelength
+        
+        # define numpy nd-arrays to store the data in
         good_pixels = np.zeros([np.shape(flux_s)[0],np.shape(flux_s)[1],np.shape(flux_s)[2]],dtype = object)
         error_good_pixels = np.zeros([np.shape(flux_s)[0],np.shape(flux_s)[1],np.shape(flux_s)[2]],dtype = object)
         one_over_error_good_pixels = np.zeros([np.shape(flux_s)[0],np.shape(flux_s)[1],np.shape(flux_s)[2]],dtype = object)
+        
+        # iterate through the fibres
         for fibre in range(19):
             # iterate through the orders
             for order in range(40):
                 # pull out spectrum
                 spectrum = flux_s[:,order,fibre]
+                # find scale for spectrum and divide the spectrum and the spectrum error by this scale 
                 scale = np.median(spectrum)
                 spectrum /= scale
                 error = flux_s_err[:,order,fibre]/scale
                 
-                i = 0
-                while i < len(spectrum):
+                # find the weighted average for the spectrum
+                for i in range(22600):
                     good_pixels[i, order, fibre] = spectrum[i]/error[i]**2
                     error_good_pixels[i,order,fibre] = error[i]
                     one_over_error_good_pixels[i,order,fibre] = 1/error[i]**2
                     num_good_pixels[i,order,fibre] += 1
-                            
-                    i += 1
+
         # add the observation to the list and do the same for the errors
         template_spectrum += good_pixels
         template_spectrum_error += error_good_pixels
@@ -440,12 +528,11 @@ def generate_template(file_paths):
         # the distance from the median difference for each point
         diff = abs(diff - med_diff)[0,:,:]
         
-        # for each point in each fibre keep in template if difference to median spectrum - median distance/median distance is less than 1.1
         for order in range(np.shape(diff)[1]):
             scale = np.median(template_spectrum[:,order,fibre])
             
             for wave in range(np.shape(diff)[0]):
-                # only include a value if it is within __ of the median value
+                # only include a value if ratio is less than 2 of the median value
                 if (diff[wave,order]/med_diff<=2) & (template_spectrum[wave,order,fibre]>3*template_spectrum_error[wave,order,fibre]):
                     # add one to the weight for this wavelength to compute the weighted average
                     weights[wave,order] += 1
@@ -466,22 +553,9 @@ def generate_template(file_paths):
             if (template[wave,order]==0)| (template[wave,order]<3*error[wave,order]):
                 template[wave,order] = np.nan
                 wavelength[wave,order] = np.nan
-    plt.figure()
-    plt.plot(wavelength,template)
-    plt.show()
   
     # return the template spectrum with weighted average
     return wavelength, template, error
-        
-testing_temp_files = ['11dec30096o.fits', '11dec30097o.fits', '12dec30132o.fits', '12dec30133o.fits', '12dec30134o.fits', '13dec30076o.fits', '13dec30077o.fits', '14dec30066o.fits', '14dec30067o.fits', '14dec30068o.fits', '15dec30097o.fits', '15dec30098o.fits', '15dec30099o.fits']
-
-w, s, e = generate_template(testing_temp_files)
-
-primary_hdu = pyfits.PrimaryHDU(s)
-image_hdu = pyfits.ImageHDU(w)
-image_hdu2 = pyfits.ImageHDU(e)
-hdul = pyfits.HDUList([primary_hdu, image_hdu, image_hdu2])
-hdul.writeto('Tau_Ceti_Template_dec2019_tellcor_1.fits')
 
 
 def calc_rv_corr(file_path, observation_dir, star_spectrum_dir, k=5):
@@ -502,4 +576,85 @@ def calc_rv_corr(file_path, observation_dir, star_spectrum_dir, k=5):
     
    
 #calc_rv_corr(file_path, TC_observation_dir, '/priv/avatar/velocedata/Data/spec_211202/191211/11dec30096oi_extf.fits')
-    
+
+dd = pyfits.open('Tau_Ceti_Template_dec2019_tellcor_1.fits')
+temp = dd[0].data[:,13]
+wave = dd[1].data[:,13]
+all_log_w, all_t_logflux, all_t_logerrflux, all_s_logflux, all_s_logerrflux, [airmass_template, airmass_star] = log_scale_interpolation(testing_temp_files[0],testing_temp_files[1])
+
+data = (np.sum(all_t_logflux[:,13,:],1)/np.median(all_t_logflux[:,13,:]))
+
+diff = temp-data
+
+plt.figure()
+plt.plot(wave,data)
+
+plt.figure()
+plt.plot(wave,temp)
+
+plt.figure()
+plt.plot(wave,diff)
+
+plt.show()
+
+first_line_temp = wave[list(temp).index(min(temp[1000:2000]))]
+print(first_line_temp)
+first_line_data = wave[list(data).index(min(data[1000:2000]))]
+print(first_line_data)
+
+diff = first_line_data - first_line_temp 
+
+v = diff/first_line_temp
+
+print(v)
+
+#---------------------
+#TESTING OF FUNCTIONS
+#---------------------
+
+#________________________
+# log_scale_interpolation
+#________________________  
+
+#w,t,terr,s,serr,airmass = log_scale_interpolation('11dec30096o.fits','11dec30096o.fits')
+
+#____________________
+# find_telluric_star
+#____________________    
+#st, ts = find_telluric_star('15dec30098o.fits','closest')
+
+#_____________________
+# telluric_correction
+#_____________________
+#dd = Table.read('veloce_observations.fits')
+#w_t, s_t, e_t = telluric_correction('15dec30098o.fits','closest')
+
+#________________________
+# barycentric_correction
+#________________________
+
+#a,b = barycentric_correction('11dec30096o.fits', '11dec30097o.fits')
+
+#___________________
+# generate_template
+#___________________
+
+# testing_temp_files = ['11dec30096o.fits', '11dec30097o.fits', '12dec30132o.fits', '12dec30133o.fits', '12dec30134o.fits', '13dec30076o.fits', '13dec30077o.fits', '14dec30066o.fits', '14dec30067o.fits', '14dec30068o.fits', '15dec30097o.fits', '15dec30098o.fits', '15dec30099o.fits']
+
+#w, s, e = generate_template(testing_temp_files)
+
+#primary_hdu = pyfits.PrimaryHDU(s)
+#image_hdu = pyfits.ImageHDU(w)
+#image_hdu2 = pyfits.ImageHDU(e)
+#hdul = pyfits.HDUList([primary_hdu, image_hdu, image_hdu2])
+#hdul.writeto('Tau_Ceti_Template_dec2019_tellcor_1.fits')
+
+#_______________________
+# how to save fits file
+#_______________________
+#primary_hdu = pyfits.PrimaryHDU(s_t)
+#image_hdu = pyfits.ImageHDU(w_t)
+#image_hdu2 = pyfits.ImageHDU(e_t)
+#hdul = pyfits.HDUList([primary_hdu, image_hdu, image_hdu2])
+#hdul.writeto('telluric_13dec2019.fits')
+
