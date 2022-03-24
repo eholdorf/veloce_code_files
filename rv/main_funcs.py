@@ -7,7 +7,10 @@ from astropy.table import Table
 import get_observations
 import astropy.constants as c
 import astropy.units as u
-from barycorrpy import get_BC_vel
+try:
+    from barycorrpy import get_BC_vel
+except:
+    raise UserWarning("No Barycorrpy! You need to install this using 'pip install barycorrpy'")
 import scipy.optimize as opt
 
 def log_scale_interpolation(template_obs, star_obs,k=5, BC = False, num_points = 22600):
@@ -575,86 +578,5 @@ def calc_rv_corr(file_path, observation_dir, star_spectrum_dir, k=5):
     return correlation
     
    
-#calc_rv_corr(file_path, TC_observation_dir, '/priv/avatar/velocedata/Data/spec_211202/191211/11dec30096oi_extf.fits')
 
-dd = pyfits.open('Tau_Ceti_Template_dec2019_tellcor_1.fits')
-temp = dd[0].data[:,13]
-wave = dd[1].data[:,13]
-all_log_w, all_t_logflux, all_t_logerrflux, all_s_logflux, all_s_logerrflux, [airmass_template, airmass_star] = log_scale_interpolation(testing_temp_files[0],testing_temp_files[1])
-
-data = (np.sum(all_t_logflux[:,13,:],1)/np.median(all_t_logflux[:,13,:]))
-
-diff = temp-data
-
-plt.figure()
-plt.plot(wave,data)
-
-plt.figure()
-plt.plot(wave,temp)
-
-plt.figure()
-plt.plot(wave,diff)
-
-plt.show()
-
-first_line_temp = wave[list(temp).index(min(temp[1000:2000]))]
-print(first_line_temp)
-first_line_data = wave[list(data).index(min(data[1000:2000]))]
-print(first_line_data)
-
-diff = first_line_data - first_line_temp 
-
-v = diff/first_line_temp
-
-print(v)
-
-#---------------------
-#TESTING OF FUNCTIONS
-#---------------------
-
-#________________________
-# log_scale_interpolation
-#________________________  
-
-#w,t,terr,s,serr,airmass = log_scale_interpolation('11dec30096o.fits','11dec30096o.fits')
-
-#____________________
-# find_telluric_star
-#____________________    
-#st, ts = find_telluric_star('15dec30098o.fits','closest')
-
-#_____________________
-# telluric_correction
-#_____________________
-#dd = Table.read('veloce_observations.fits')
-#w_t, s_t, e_t = telluric_correction('15dec30098o.fits','closest')
-
-#________________________
-# barycentric_correction
-#________________________
-
-#a,b = barycentric_correction('11dec30096o.fits', '11dec30097o.fits')
-
-#___________________
-# generate_template
-#___________________
-
-# testing_temp_files = ['11dec30096o.fits', '11dec30097o.fits', '12dec30132o.fits', '12dec30133o.fits', '12dec30134o.fits', '13dec30076o.fits', '13dec30077o.fits', '14dec30066o.fits', '14dec30067o.fits', '14dec30068o.fits', '15dec30097o.fits', '15dec30098o.fits', '15dec30099o.fits']
-
-#w, s, e = generate_template(testing_temp_files)
-
-#primary_hdu = pyfits.PrimaryHDU(s)
-#image_hdu = pyfits.ImageHDU(w)
-#image_hdu2 = pyfits.ImageHDU(e)
-#hdul = pyfits.HDUList([primary_hdu, image_hdu, image_hdu2])
-#hdul.writeto('Tau_Ceti_Template_dec2019_tellcor_1.fits')
-
-#_______________________
-# how to save fits file
-#_______________________
-#primary_hdu = pyfits.PrimaryHDU(s_t)
-#image_hdu = pyfits.ImageHDU(w_t)
-#image_hdu2 = pyfits.ImageHDU(e_t)
-#hdul = pyfits.HDUList([primary_hdu, image_hdu, image_hdu2])
-#hdul.writeto('telluric_13dec2019.fits')
 
