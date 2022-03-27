@@ -59,7 +59,7 @@ def log_scale_interpolation(template_obs, star_obs,k=5, BC = False, num_points =
         element 1 is the airmass for star_obs obervation
     """
     # find the observation in the veloce_observations.fits file and store the location in the MSO storage and the airmass
-    veloce_obs = Table.read('veloce_observations.fits')
+    veloce_obs = Table.read('/home/ehold13/veloce_scripts/veloce_observations.fits')
     template_i = 0
     template_j = 0
     template_obs_num = 0
@@ -231,7 +231,7 @@ def find_telluric_star(obs_night, time):
         element 3 - byte (float) : modified julian date for the telluric star observation
     """
     # read in the fits file with all of the information for Veloce observations
-    dd = Table.read('veloce_observations.fits')
+    dd = Table.read('/home/ehold13/veloce_scripts/veloce_observations.fits')
     # get info for observation want to telluric correct
     for obs in dd:
         i = 0
@@ -356,7 +356,7 @@ def telluric_correction(scale_star, obs_night, time):
                 telluric_spec[wave,order] = np.nan
                 wavelength[wave,order] = np.nan
     # apply an airmass correction           
-    telluric_spec = telluric_spec**(airmass_star[1]/airmass_telluric[1])
+    telluric_spec = telluric_spec**((airmass_star[1]/ airmass_telluric[1]))
                        
     return wavelength, telluric_spec, error_spec, target_star, telluric_star
 
@@ -383,7 +383,7 @@ def barycentric_correction(template_obs, star_obs):
         v/c for star_obs where v is the barycentric velocity
     """
     # find and save the information for the template and for the star obervations which are found in veloce_observations.fits file
-    veloce_obs = Table.read('veloce_observations.fits')
+    veloce_obs = Table.read('/home/ehold13/veloce_scripts/veloce_observations.fits')
     template_i = 0
     template_j = 0
     template_obs_num = 0
@@ -420,8 +420,10 @@ def barycentric_correction(template_obs, star_obs):
     template_delta_lambda = template_BC[0][0]*u.m*u.s**-1/(c.c.to(u.m/u.s))
             
     star_BC = get_BC_vel(star_fits_row[6][star_obs_num]+2400000.5, ra = star_fits_row[1][0], dec = star_fits_row[1][1], obsname = 'SSO')
-    star_delta_lambda = star_BC[0][0]*u.m*u.s**-1/c.c
+    star_delta_lambda = star_BC[0][0]*u.m*u.s**-1/c.c.si
     
+    print(template_delta_lambda * c.c)
+    print(star_delta_lambda * c.c.si)
     return template_delta_lambda.value, star_delta_lambda.value
     
 
