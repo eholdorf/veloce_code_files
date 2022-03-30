@@ -77,3 +77,4 @@ if __name__=="__main__":
     plt.plot(y)
     plt.plot(yorig)
     plt.plot(corrected)
+    plt.show()
