@@ -90,11 +90,23 @@ if __name__=="__main__":
     wavelength = obs[1].data
     spect_err = obs[2].data
     temp_func = InterpolatedUnivariateSpline(Tau_Ceti_Template[1].data[:,13], Tau_Ceti_Template[0].data[:,13], k=1)
-    sp = rv_fitting_eqn([-24000,0,0,0],wavelength[:,13,0],spect[:,13,0],spect_err[:,13,0],temp_func, return_spec = True)
+    sp = rv_fitting_eqn([-24000,0,0,0],wavelength[401:3601,13,0],spect[401:3601,13,0],spect_err[401:3601,13,0],temp_func, return_spec = True)
     plt.figure()
-    plt.plot(spect[:,13,0])
+    plt.plot(wavelength[401:3601,13,0],spect[401:3601,13,0])
+    plt.xlabel('Wavelength ($\AA$)')
+    plt.ylabel('Flux')
+    plt.title('Original Spectrum')
     plt.figure()
-    plt.plot(sp)
+    plt.plot(wavelength[401:3601,13,0],sp)
+    plt.xlabel('Wavelength ($\AA$)')
+    plt.ylabel('Flux')
+    plt.title('Fitted Spectrum')
+    plt.figure()
+    plt.plot(wavelength[401:3601,13,0],100*(sp-spect[401:3601,13,0])/spect[401:3601,13,0])
+    #plt.plot(100*(sp-spect[401:3601,13,0])/spect[401:3601,13,0])
+    plt.xlabel('Wavelength ($\AA$)')
+    plt.ylabel('Percentage Error')
+    plt.title('Residual')
     plt.show()
             
     #plt.figure()
@@ -118,9 +130,9 @@ if __name__=="__main__":
             temp_func = InterpolatedUnivariateSpline(temp_wave, temp_spec, k=1) 
             
             #spect_mask = np.isnan(spect[:,i,j])
-            spect_wave = wavelength[:,i,j]#[~spect_mask]
-            spect_spec = spect[:,i,j]#[~spect_mask]
-            spect_err_ = spect_err[:,i,j]#[~spect_mask]
+            spect_wave = wavelength[500:1500,i,j]#[~spect_mask]
+            spect_spec = spect[500:1500,i,j]#[~spect_mask]
+            spect_err_ = spect_err[500:1500,i,j]#[~spect_mask]
               
             a = optimise.leastsq(rv_fitting_eqn,x0 = [-24000,0,0,0], args=(spect_wave, spect_spec, spect_err_, temp_func),full_output = True)
             
