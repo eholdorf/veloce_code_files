@@ -12,14 +12,15 @@ from barycorrpy import get_BC_vel
 import utils
 
 def create_observation_fits(standard, obs_fits, save_dir, combine_fibres = False):
-    #all_log_w, all_t_logflux, all_t_logerrflux, all_s_logflux, all_s_logerrflux, airmasses = log_scale_interpolation(standard,obs_fits,BC=False)
-    
+   
     dd = pyfits.open('/priv/avatar/velocedata/Data/spec_211202/191211/'+obs_fits[0:10]+'oi_extf.fits')
     all_log_w = dd[1].data[:,:,4:23]
     all_s_logflux = dd[0].data[:,:,4:23]
     all_s_logerrflux = dd[2].data[:,:,4:23]
+    all_log_w, all_t_logflux, all_t_logerrflux, all_s_logflux, all_s_logerrflux, airmasses = log_scale_interpolation(standard,obs_fits, BC = False,num_points = 3900)
+        
     plt.figure()
-    plt.plot(all_log_w[:,:,0], all_s_logflux[:,:,0])
+    plt.plot(all_log_w[:,:], all_s_logflux[:,:,0])
     plt.show()
 
     wave_tell_b, telluric_spec_b, telluric_err_spec_b, target_info_b, telluric_info_b = telluric_correction(standard,obs_fits,'before',scrunch = False)
@@ -59,7 +60,7 @@ def create_observation_fits(standard, obs_fits, save_dir, combine_fibres = False
     image_hdu = pyfits.ImageHDU(wavelength)
     image_hdu2 = pyfits.ImageHDU(spect_err)
     hdul = pyfits.HDUList([primary_hdu, image_hdu, image_hdu2])
-    hdul.writeto(save_dir+obs_fits[0:10] + '_corrected.fits')
+    hdul.writeto(save_dir+obs_fits[0:10] + '_corrected_tell.fits')
     
     return spect, wavelength, spect_err
 
@@ -76,33 +77,35 @@ def rv_fitting_eqn(params, wave, spect, spect_err, interp_func, return_spec = Fa
     return (fitted_spectra - spect)/spect_err
 
 if __name__=="__main__":
-
+    print(1)
     save_dir = '/home/ehold13/veloce_scripts/obs_corrected_fits/'
-    
+    print(2)
     #s,w,se = create_observation_fits('11dec30096o.fits','11dec30096o.fits',save_dir)
     #s,w,se = create_observation_fits('11dec30096o.fits','14dec30068o.fits',save_dir)
-    
+    print(3)
     Tau_Ceti_Template = pyfits.open('/home/ehold13/veloce_scripts/Tau_Ceti_Template_dec2019_tellcor_1.fits')
     HD85512_Template = pyfits.open('/home/ehold13/veloce_scripts/HD85512_dec2019.fits')
-    
-    obs = pyfits.open(save_dir + '11dec30096_corrected.fits')
+    print(4)
+    obs = pyfits.open(save_dir + '11dec30096_corrected_tell.fits')
     spect = obs[0].data
     wavelength = obs[1].data
     spect_err = obs[2].data
+    print(5)
     temp_func = InterpolatedUnivariateSpline(Tau_Ceti_Template[1].data[:,13], Tau_Ceti_Template[0].data[:,13], k=1)
-    sp = rv_fitting_eqn([-24000,0,0,0],wavelength[401:3601,13,0],spect[401:3601,13,0],spect_err[401:3601,13,0],temp_func, return_spec = True)
+    print(6)
+    sp = rv_fitting_eqn([-24000,0,0,0],wavelength[401:3601,13],spect[401:3601,13,0],spect_err[401:3601,13,0],temp_func, return_spec = True)
     plt.figure()
-    plt.plot(wavelength[401:3601,13,0],spect[401:3601,13,0])
+    plt.plot(wavelength[401:3601,13],spect[401:3601,13,0])
     plt.xlabel('Wavelength ($\AA$)')
     plt.ylabel('Flux')
-    plt.title('Original Spectrum')
-    plt.figure()
-    plt.plot(wavelength[401:3601,13,0],sp)
+    #plt.title('Original Spectrum')
+    #plt.figure()
+    plt.plot(wavelength[401:3601,13],sp)
     plt.xlabel('Wavelength ($\AA$)')
     plt.ylabel('Flux')
-    plt.title('Fitted Spectrum')
+    #plt.title('Fitted Spectrum')
     plt.figure()
-    plt.plot(wavelength[401:3601,13,0],100*(sp-spect[401:3601,13,0])/spect[401:3601,13,0])
+    plt.plot(wavelength[401:3601,13],100*(sp-spect[401:3601,13,0])/spect[401:3601,13,0])
     #plt.plot(100*(sp-spect[401:3601,13,0])/spect[401:3601,13,0])
     plt.xlabel('Wavelength ($\AA$)')
     plt.ylabel('Percentage Error')
@@ -130,7 +133,7 @@ if __name__=="__main__":
             temp_func = InterpolatedUnivariateSpline(temp_wave, temp_spec, k=1) 
             
             #spect_mask = np.isnan(spect[:,i,j])
-            spect_wave = wavelength[500:1500,i,j]#[~spect_mask]
+            spect_wave = wavelength[500:1500,i]#[~spect_mask]
             spect_spec = spect[500:1500,i,j]#[~spect_mask]
             spect_err_ = spect_err[500:1500,i,j]#[~spect_mask]
               
