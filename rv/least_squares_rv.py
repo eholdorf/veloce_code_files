@@ -128,7 +128,7 @@ if __name__=="__main__":
     #orders= list(range(2,15))
     #orders.extend(list(range(17,40)))
 
-    orders = [13]
+    orders = [13,36,37]
     for i in orders:
         #temp_mask = np.isnan(Tau_Ceti_Template[0].data[:,i])
         temp_wave = Tau_Ceti_Template[1].data[:,i]#[~temp_mask]
@@ -137,10 +137,10 @@ if __name__=="__main__":
         rvs = []
         rv_errs = []
         for j in range(19):
-            #spect_mask = np.isnan(spect[:,i,j])
-            spect_wave = wavelength[500:2000,i,j]#[~spect_mask]
-            spect_spec = spect[500:2000,i,j]#[~spect_mask]
-            spect_err_ = spect_err[500:2000,i,j]#[~spect_mask]
+            spect_mask = np.isnan(spect[500:2000,i,j])
+            spect_wave = wavelength[500:2000,i,j][~spect_mask]
+            spect_spec = spect[500:2000,i,j][~spect_mask]
+            spect_err_ = spect_err[500:2000,i,j][~spect_mask]
               
             a = optimise.leastsq(rv_fitting_eqn,x0 = [-24,0,0,0], args=(spect_wave, spect_spec, spect_err_, temp_func),\
                 epsfcn=1e-6, full_output = True, ftol=1e-6, gtol=1e-6)
@@ -148,7 +148,7 @@ if __name__=="__main__":
             
             print(a[0])
             
-            if (j<10):
+            if False:
                 plt.figure()
                 plt.plot(spect_wave,a[2]['fvec'])
                 plt.show()
@@ -163,20 +163,27 @@ if __name__=="__main__":
             #    val.append(a.x[0])
             #print(a.x)
 
-    rvs = np.array(rvs)
-    rv_errs = np.array(rv_errs)
-    print(np.median(rvs))
-    weights = 1/rv_errs**2
-    wtmn_rv = np.sum(weights*rvs)/np.sum(weights)
-    wtmn_rv_err = 1/np.sqrt(np.sum(weights))
-    print("Weighted mean RV (km/s): {:.4f} +/- {:.4f}".format(wtmn_rv, wtmn_rv_err))
-    print("MSE: {:.2f}".format(np.mean((wtmn_rv - rvs)**2/rv_errs**2)))
+        rvs = np.array(rvs)
+        rv_errs = np.array(rv_errs)
+        print(np.median(rvs))
+        weights = 1/rv_errs**2
+        wtmn_rv = np.sum(weights*rvs)/np.sum(weights)
+        wtmn_rv_err = 1/np.sqrt(np.sum(weights))
+        print("Weighted mean RV (km/s): {:.4f} +/- {:.4f}".format(wtmn_rv, wtmn_rv_err))
+        print("MSE: {:.2f}".format(np.mean((wtmn_rv - rvs)**2/rv_errs**2)))
+        plt.figure()
+        plt.errorbar(np.arange(19)+1, rvs, rv_errs, fmt='.')
+        plt.title('Order:' + str(i))
+        plt.xlabel('Fiber num')
+        plt.ylabel('Velocity (km/s)')
+        plt.show()
+
 
     BC_t, BC_star = barycentric_correction('11dec30096o.fits','14dec30068o.fits')
     
     print(BC_t*c.c)
 
-    print(100*(np.median(val) - BC_t*c.c.si.value)/(BC_t*c.c.si.value))
+    print(100*(np.median(rvs) - BC_t*c.c.si.value)/(BC_t*c.c.si.value))
     
     own = False
     if own:
