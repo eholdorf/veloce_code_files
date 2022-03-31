@@ -83,7 +83,7 @@ def rv_fitting_eqn(params, wave, spect, spect_err, interp_func, return_spec = Fa
 
 if __name__=="__main__":
 
-    save_dir = './'#'/home/ehold13/veloce_scripts/obs_corrected_fits/'
+    save_dir = './' #'/home/ehold13/veloce_scripts/obs_corrected_fits/'
     
     #s,w,se = create_observation_fits('11dec30096o.fits','11dec30096o.fits',save_dir)
     #s,w,se = create_observation_fits('11dec30096o.fits','14dec30068o.fits',save_dir)
@@ -151,7 +151,7 @@ if __name__=="__main__":
             if False:
                 plt.figure()
                 plt.plot(spect_wave,a[2]['fvec'])
-                plt.show()
+                #plt.show()
             #import pdb; pdb.set_trace()
             
             if a[0][0] != -24:
@@ -183,7 +183,8 @@ if __name__=="__main__":
     
     print(BC_t*c.c)
 
-    print(100*(np.median(rvs) - BC_t*c.c.si.value)/(BC_t*c.c.si.value))
+    print(100*(np.median(rvs) - BC_t*c.c.to(u.km/u.s).value)/(BC_t*c.c.to(u.km/us).value))
+
     
     own = False
     if own:
@@ -207,7 +208,6 @@ if __name__=="__main__":
         print(np.median(val))
 
         print(100*(np.median(val) + 3)/(3))
-    
-    
-    
-    
+
+
+
