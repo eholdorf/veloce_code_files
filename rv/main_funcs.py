@@ -12,6 +12,7 @@ try:
 except:
     raise UserWarning("No Barycorrpy! You need to install this using 'pip install barycorrpy'")
 import scipy.optimize as opt
+import utils
 
 def log_scale_interpolation(template_obs, star_obs,k=5, BC = False, num_points = 22600):
     """
@@ -276,7 +277,6 @@ def find_telluric_star(obs_night, time):
         science_target, telluric_star = find_telluric_star(obs_night, 'closest')
     return science_target, telluric_star
 
-
 def telluric_correction(scale_star, obs_night, time, scrunch = True):
     """
     Description
@@ -319,9 +319,16 @@ def telluric_correction(scale_star, obs_night, time, scrunch = True):
         element 2 - byte (int) : date of the telluric star observation as in veloce_observations.fits
         element 3 - byte (float) : modified julian date for the telluric star observation
     """ 
+    # read in the data for telluric absorption lines
+    print(1)
+    telluric_absorption = Table.read('/home/ehold13/veloce_scripts/Tellurics_line_positions_98mask.txt',format='ascii.ecsv')
+    telluric_abs_lines = [line[0] for line in telluric_absorption]
+    telluric_abs_widths = [line[4] for line in telluric_absorption]
+    print(2)
     # find a telluric star for the given observation
     target_star, telluric_star = find_telluric_star(obs_night, time)
     # scrunch the data for both the telluric star and observation onto scale_star wavelength scale with no barycentric correction
+    print(3)
     if scrunch:
     	wavelength, flux_scale, flux_scale_err, flux_telluric, flux_telluric_err, airmass_telluric = log_scale_interpolation(scale_star,telluric_star[1].decode('utf-8'), BC = False)
     	wavelength, flux_scale, flux_scale_err, flux_star, flux_star_err, airmass_star = log_scale_interpolation(scale_star,target_star[1].decode('utf-8'), BC = False)
@@ -329,7 +336,25 @@ def telluric_correction(scale_star, obs_night, time, scrunch = True):
     else:
         wavelength, flux_scale, flux_scale_err, flux_telluric, flux_telluric_err, airmass_telluric = log_scale_interpolation(scale_star,telluric_star[1].decode('utf-8'), BC = False,num_points = 3900)
         wavelength, flux_scale, flux_scale_err, flux_star, flux_star_err, airmass_star = log_scale_interpolation(scale_star,target_star[1].decode('utf-8'), BC = False,num_points =3900)
-
+    print(4)
+    plt.figure()
+    plt.plot(wavelength[:,0],flux_telluric[:,0,0])
+    
+    bad_wavelengths = np.zeros([np.shape(flux_telluric)[0],np.shape(flux_telluric)[1]])
+    for order in range(np.shape(flux_telluric)[1]):
+        for wave in range(np.shape(flux_telluric)[0]):
+            for index, absorption in enumerate(telluric_abs_lines):
+                if wavelength[wave,order] < absorption + telluric_abs_widths[index]/2 and absorption - telluric_abs_widths[index]/2 < wavelength[wave,order]:
+                    print('+1')
+                    bad_wavelengths[wave,order] = 1
+    print(5)
+    for fibre in range(19):
+        for order in range(np.shape(flux_telluric)[1]):
+            flux_telluric[:,order,fibre], Bplus = utils.correct_bad(flux_telluric[:,order,fibre], bad_wavelengths[:,order])
+    
+    plt.figure()
+    plt.plot(wavelength[:,0], flux_telluric[:,0,0])
+    #plt.show()
         #telluric = pyfits.open('/priv/avatar/velocedata/Data/spec_211202/'+str(telluric_star[2].decode('utf-8'))+'/'+telluric_star[1].decode('utf-8')[0:10]+'oi_extf.fits')
         
 
@@ -371,7 +396,7 @@ def telluric_correction(scale_star, obs_night, time, scrunch = True):
     telluric_spec = telluric_spec**((airmass_star[1]/ airmass_telluric[1]))
                        
     return wavelength, telluric_spec, error_spec, target_star, telluric_star
-
+#w,spec,err,targ, tell = telluric_correction('11dec30096o.fits','11dec30096o.fits', 'closest', scrunch = False)
 def barycentric_correction(template_obs, star_obs):
     """
     Description
@@ -571,5 +596,14 @@ def generate_template(file_paths):
   
     # return the template spectrum with weighted average
     return wavelength, template, error
+
+#temp_files =     ['11dec30096o.fits', '11dec30097o.fits', '12dec30132o.fits', '12dec30133o.fits', '12dec30134o.fits', '13dec30076o.fits', '13dec30077o.fits', '14dec30066o.fits', '14dec30067o.fits', '14dec30068o.fits', '15dec30097o.fits', '15dec30098o.fits', '15dec30099o.fits']
+
+#w,s,e = generate_template(temp_files)
+#primary_hdu = pyfits.PrimaryHDU(s)
+#image_hdu = pyfits.ImageHDU(w)
+#image_hdu2 = pyfits.ImageHDU(e)
+#hdul = pyfits.HDUList([primary_hdu, image_hdu, image_hdu2])
+#hdul.writeto('Tau_Ceti_Template_dec2019_telluric_patched.fits')    
 
 
