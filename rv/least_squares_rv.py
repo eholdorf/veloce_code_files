@@ -68,7 +68,7 @@ def create_observation_fits(standard, obs_fits, save_dir, combine_fibres = False
     return spect, wavelength, spect_err
 
 
-def rv_fitting_eqn(params, wave, spect, spect_err, interp_func):
+def rv_fitting_eqn(params, wave, spect, spect_err, interp_func, return_fit=False):
     #num_pixels = 4100
     #total_wave_range = 9485.1 - 5877.9
     #min_wave = 5877.9
@@ -78,11 +78,13 @@ def rv_fitting_eqn(params, wave, spect, spect_err, interp_func):
     scaling_factor = np.exp(params[1]+params[2]*pixel + params[3]*pixel**2)
     
     fitted_spectra = interp_func(wave * (1.0 + params[0]/c.c.si.value))*scaling_factor
+    if return_fit:
+        return fitted_spectra
     return (fitted_spectra - spect)/spect_err
 
 if __name__=="__main__":
 
-    save_dir = '/home/ehold13/veloce_scripts/obs_corrected_fits/'
+    save_dir = './'#'/home/ehold13/veloce_scripts/obs_corrected_fits/'
     
     #s,w,se = create_observation_fits('11dec30096o.fits','11dec30096o.fits',save_dir)
     #s,w,se = create_observation_fits('11dec30096o.fits','14dec30068o.fits',save_dir)
@@ -90,7 +92,7 @@ if __name__=="__main__":
     Tau_Ceti_Template = pyfits.open('/home/ehold13/veloce_scripts/Tau_Ceti_Template_dec2019_tellcor_1.fits')
     HD85512_Template = pyfits.open('/home/ehold13/veloce_scripts/HD85512_dec2019.fits')
     
-    obs = pyfits.open(save_dir + '11dec30096_corrected.fits')
+    obs = pyfits.open('/home/ehold13/veloce_scripts/obs_corrected_fits/11dec30096_corrected.fits')
     spect = obs[0].data
     wavelength = obs[1].data
     spect_err = obs[2].data
@@ -112,24 +114,24 @@ if __name__=="__main__":
             temp_mask = np.isnan(Tau_Ceti_Template[0].data[:,i])
             temp_wave = Tau_Ceti_Template[1].data[:,i][~temp_mask]
             temp_spec = Tau_Ceti_Template[0].data[:,i][~temp_mask]  
-            temp_func = InterpolatedUnivariateSpline(temp_wave, temp_spec, k=5) 
+            temp_func = InterpolatedUnivariateSpline(temp_wave, temp_spec, k=1) 
             
             spect_mask = np.isnan(spect[:,i,j])
             spect_wave = wavelength[:,i][~spect_mask]
             spect_spec = spect[:,i,j][~spect_mask]
             spect_err_ = spect_err[:,i,j][~spect_mask]
-            bad = np.zeros(len(spect_spec))
-            
-            spect_masked,bplus = utils.correct_bad(spect_spec,bad)
+
+            #bad = np.zeros(len(spect_spec))
+            #spect_masked,bplus = utils.correct_bad(spect_spec,bad)
               
-            a = optimise.leastsq(rv_fitting_eqn,x0 = [-24000,0,0,0], args=(wavelength[:,i], spect_masked, spect_err[:,i,j], temp_func),full_output = True)
+            a = optimise.leastsq(rv_fitting_eqn,x0 = [-24000,0,0,0], args=(spect_wave, spect_masked, spect_err, temp_func),full_output = True)
             
             print(a[0])
-            plt.figure()
-            plt.plot(a[1]['cov_x'])
+            #plt.figure()
+            #plt.plot(a[1]['cov_x'])
    
             plt.figure()
-            plt.plot(wavelength[:,i],a[2]['fvec'])
+            plt.plot(wavelength[:,i],a[2]['fvec']*spect_err[:,i,j])
             plt.show()
             
             if a[0][0] != -24000:
