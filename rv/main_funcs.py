@@ -277,7 +277,7 @@ def find_telluric_star(obs_night, time):
     return science_target, telluric_star
 
 
-def telluric_correction(scale_star, obs_night, time):
+def telluric_correction(scale_star, obs_night, time, scrunch = True):
     """
     Description
     -----------
@@ -322,32 +322,44 @@ def telluric_correction(scale_star, obs_night, time):
     # find a telluric star for the given observation
     target_star, telluric_star = find_telluric_star(obs_night, time)
     # scrunch the data for both the telluric star and observation onto scale_star wavelength scale with no barycentric correction
-    wavelength, flux_scale, flux_scale_err, flux_telluric, flux_telluric_err, airmass_telluric = log_scale_interpolation(scale_star,telluric_star[1].decode('utf-8'), BC = False)
-    wavelength, flux_scale, flux_scale_err, flux_star, flux_star_err, airmass_star = log_scale_interpolation(scale_star,target_star[1].decode('utf-8'), BC = False)
+    if scrunch:
+    	wavelength, flux_scale, flux_scale_err, flux_telluric, flux_telluric_err, airmass_telluric = log_scale_interpolation(scale_star,telluric_star[1].decode('utf-8'), BC = False)
+    	wavelength, flux_scale, flux_scale_err, flux_star, flux_star_err, airmass_star = log_scale_interpolation(scale_star,target_star[1].decode('utf-8'), BC = False)
+
+    else:
+        wavelength, flux_scale, flux_scale_err, flux_telluric, flux_telluric_err, airmass_telluric = log_scale_interpolation(scale_star,telluric_star[1].decode('utf-8'), BC = False,num_points = 3900)
+        wavelength, flux_scale, flux_scale_err, flux_star, flux_star_err, airmass_star = log_scale_interpolation(scale_star,target_star[1].decode('utf-8'), BC = False,num_points =3900)
+
+        #telluric = pyfits.open('/priv/avatar/velocedata/Data/spec_211202/'+str(telluric_star[2].decode('utf-8'))+'/'+telluric_star[1].decode('utf-8')[0:10]+'oi_extf.fits')
+        
 
     # create empty lists to fill with template spectrum
     telluric_spec = np.zeros([np.shape(flux_telluric)[0],np.shape(flux_telluric)[1]])
     error_spec = np.zeros([np.shape(flux_telluric)[0],np.shape(flux_telluric)[1]])
     over_error_spec = np.zeros([np.shape(flux_telluric)[0],np.shape(flux_telluric)[1]])
     weights = np.ones([np.shape(flux_telluric)[0],np.shape(flux_telluric)[1]])
+	
     
     # iterate through the fibres and orders creating the spectrum
-    for fibre in range(19):
+    for fibre in range(np.shape(flux_telluric)[2]):
         print(fibre)
-        for order in range(40):
+        for order in range(np.shape(flux_telluric)[1]):
             # find the scale factor that the order needs to be shifted by to make flat spectrum
-            scale = np.median(flux_telluric[:,order,fibre])
-            for i in range(22600):
+            mask = np.isnan(flux_telluric[:,order,fibre])
+            scale = np.median(flux_telluric[:,order,fibre][~mask])
+            for i in range(np.shape(flux_telluric)[0]):
                 # check the signal to noise, want to be greater than 3
                 if flux_telluric[i,order,fibre]> 3*flux_telluric_err[i,order,fibre]:
                     # apply the weighted average 
                     telluric_spec[i,order] += (flux_telluric[i,order,fibre]/scale)/(flux_telluric_err[i,order,fibre]/scale)**2
+                    
                     error_spec[i,order] += flux_telluric_err[i,order,fibre]/scale
                     over_error_spec[i,order] += scale**2/flux_telluric_err[i,order,fibre]**2
                     weights[i,order] += 1
     telluric_spec /= over_error_spec*weights
     over_error_spec /= weights
     error_spec = (1/over_error_spec)**0.5
+    
     
     # if a value is equal to 0 (as it didn't have a high enough signal to noise) then set it to be NaN
     for order in range(40):
@@ -421,9 +433,7 @@ def barycentric_correction(template_obs, star_obs):
             
     star_BC = get_BC_vel(star_fits_row[6][star_obs_num]+2400000.5, ra = star_fits_row[1][0], dec = star_fits_row[1][1], obsname = 'SSO')
     star_delta_lambda = star_BC[0][0]*u.m*u.s**-1/c.c.si
-    
-    print(template_delta_lambda * c.c)
-    print(star_delta_lambda * c.c.si)
+
     return template_delta_lambda.value, star_delta_lambda.value
     
 
@@ -466,7 +476,7 @@ def generate_template(file_paths):
         wave_tell_a, telluric_spec_a, telluric_err_spec_a, target_info_a, telluric_info_a = telluric_correction(file_paths[0],obs, 'after')
         
         # take the time weighted average of the before and after telluric spectra, if there was only one, then no need for this step
-        if telluric_info_a[3]!= telluric_info_b[3]:
+        if telluric_info_a[1]!= telluric_info_b[1]:
             telluric_spec = (telluric_spec_a*(target_info_b[3] - telluric_info_b[3]) + telluric_spec_b*(target_info_a[3] - telluric_info_a[3]))/(telluric_info_a[3]-telluric_info_b[3])
         else:
             telluric_spec = telluric_spec_a
@@ -561,24 +571,5 @@ def generate_template(file_paths):
   
     # return the template spectrum with weighted average
     return wavelength, template, error
-
-
-def calc_rv_corr(file_path, observation_dir, star_spectrum_dir, k=5):
-    # generate a template and wavelength scale
-    template_wave, template_spec = make_template(file_path,observation_dir)
-    # interpolate the star spectrum onto the same wavelength scale as above
-    wavelength, template, star_spec = log_scale_interpolation(file_path+observation_dir[0],star_spectrum_dir)
-    # calculate the cross-correlation between each order of each fibre between the star and the template
-    correlation = []
-    for fibre in range(np.shape(template_spec)[0]):
-        order_cor = []
-        for order in range(np.shape(template_spec)[1]):
-            # perfrom cross-correlation between template and spectrum
-            cor = correlate(star_spec[fibre][order], template_spec[fibre][order], mode = 'same',method = 'auto')
-            order_cor.append(cor)
-        correlation.append(order_cor)
-    return correlation
-    
-   
 
 

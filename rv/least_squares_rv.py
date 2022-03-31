@@ -12,37 +12,33 @@ from barycorrpy import get_BC_vel
 import utils
 
 def create_observation_fits(standard, obs_fits, save_dir, combine_fibres = False):
-    all_log_w, all_t_logflux, all_t_logerrflux, all_s_logflux, all_s_logerrflux, airmasses = log_scale_interpolation(standard,obs_fits,BC=False)
+    #all_log_w, all_t_logflux, all_t_logerrflux, all_s_logflux, all_s_logerrflux, airmasses = log_scale_interpolation(standard,obs_fits,BC=False)
     
+    dd = pyfits.open('/priv/avatar/velocedata/Data/spec_211202/191211/'+obs_fits[0:10]+'oi_extf.fits')
+    all_log_w = dd[1].data[:,:,4:23]
+    all_s_logflux = dd[0].data[:,:,4:23]
+    all_s_logerrflux = dd[2].data[:,:,4:23]
     plt.figure()
-    plt.plot(all_log_w, all_s_logflux[:,:,0])
+    plt.plot(all_log_w[:,:,0], all_s_logflux[:,:,0])
     plt.show()
 
-    wave_tell_b, telluric_spec_b, telluric_err_spec_b, target_info_b, telluric_info_b = telluric_correction(standard,obs_fits,'before')
+    wave_tell_b, telluric_spec_b, telluric_err_spec_b, target_info_b, telluric_info_b = telluric_correction(standard,obs_fits,'before',scrunch = False)
+   
     
-    plt.figure()
-    plt.plot(wave_tell_b, telluric_spec_b)
-    plt.show()
-    
-    wave_tell_a, telluric_spec_a, telluric_err_spec_a, target_info_a, telluric_info_a = telluric_correction(standard,obs_fits,'after')
-    
-    plt.figure()
-    plt.plot(wave_tell_a, telluric_spec_a)
-    plt.show()
+    wave_tell_a, telluric_spec_a, telluric_err_spec_a, target_info_a, telluric_info_a = telluric_correction(standard,obs_fits,'after', scrunch = False)
+   
 
     if telluric_info_a[1]!= telluric_info_b[1]:
         telluric_spec = (telluric_spec_a*(target_info_b[3] - telluric_info_b[3]) + telluric_spec_b*(target_info_a[3] - telluric_info_a[3]))/(telluric_info_a[3]-telluric_info_b[3])
     else:
         telluric_spec = telluric_spec_a
-        
-    plt.figure()
-    plt.plot(wave_tell_a, telluric_spec)
-    plt.show()    
+         
     
     for fibre in range(19):
         all_s_logflux[:,:,fibre] /= telluric_spec
-        for order in range(40):  
-            scale = np.median(all_s_logflux[:,order,fibre])
+        for order in range(40):
+            mask = np.isnan(all_s_logflux[:,order,fibre])
+            scale = np.median(all_s_logflux[:,order,fibre][~mask])
             all_s_logflux[:,order,fibre] /= scale
             all_s_logerrflux[:,order,fibre] /= scale
     
@@ -68,16 +64,15 @@ def create_observation_fits(standard, obs_fits, save_dir, combine_fibres = False
     return spect, wavelength, spect_err
 
 
-def rv_fitting_eqn(params, wave, spect, spect_err, interp_func):
-    #num_pixels = 4100
-    #total_wave_range = 9485.1 - 5877.9
-    #min_wave = 5877.9
-    #pixel = (1/total_wave_range) * (np.median(wave) - min_wave)
+def rv_fitting_eqn(params, wave, spect, spect_err, interp_func, return_spec = False):
     pixel = (wave-0.5*(wave[0]+wave[-1]))/(wave[-1]-wave[0])
     
     scaling_factor = np.exp(params[1]+params[2]*pixel + params[3]*pixel**2)
     
     fitted_spectra = interp_func(wave * (1.0 + params[0]/c.c.si.value))*scaling_factor
+    
+    if return_spec:
+        return fitted_spectra
     return (fitted_spectra - spect)/spect_err
 
 if __name__=="__main__":
@@ -94,9 +89,16 @@ if __name__=="__main__":
     spect = obs[0].data
     wavelength = obs[1].data
     spect_err = obs[2].data
+    temp_func = InterpolatedUnivariateSpline(Tau_Ceti_Template[1].data[:,13], Tau_Ceti_Template[0].data[:,13], k=1)
+    sp = rv_fitting_eqn([-24000,0,0,0],wavelength[:,13,0],spect[:,13,0],spect_err[:,13,0],temp_func, return_spec = True)
+    plt.figure()
+    plt.plot(spect[:,13,0])
+    plt.figure()
+    plt.plot(sp)
+    plt.show()
             
     #plt.figure()
-    #plt.plot(wavelength,spect[:,:,0])
+    #plt.plot(wavelength[:,:,0],spect[:,:,0])
     #plt.figure()
     #plt.plot(HD85512_Template[1].data,HD85512_Template[0].data)
     #plt.figure()
@@ -105,31 +107,27 @@ if __name__=="__main__":
         
     val = []
     for j in range(19):
-        orders= list(range(2,15))
-        orders.extend(list(range(17,40)))
+        #orders= list(range(2,15))
+        #orders.extend(list(range(17,40)))
         orders = [13]
         for i in orders:
-            temp_mask = np.isnan(Tau_Ceti_Template[0].data[:,i])
-            temp_wave = Tau_Ceti_Template[1].data[:,i][~temp_mask]
-            temp_spec = Tau_Ceti_Template[0].data[:,i][~temp_mask]  
-            temp_func = InterpolatedUnivariateSpline(temp_wave, temp_spec, k=5) 
+        
+            #temp_mask = np.isnan(Tau_Ceti_Template[0].data[:,i])
+            temp_wave = Tau_Ceti_Template[1].data[:,i]#[~temp_mask]
+            temp_spec = Tau_Ceti_Template[0].data[:,i]#[~temp_mask]  
+            temp_func = InterpolatedUnivariateSpline(temp_wave, temp_spec, k=1) 
             
-            spect_mask = np.isnan(spect[:,i,j])
-            spect_wave = wavelength[:,i][~spect_mask]
-            spect_spec = spect[:,i,j][~spect_mask]
-            spect_err_ = spect_err[:,i,j][~spect_mask]
-            bad = np.zeros(len(spect_spec))
-            
-            spect_masked,bplus = utils.correct_bad(spect_spec,bad)
+            #spect_mask = np.isnan(spect[:,i,j])
+            spect_wave = wavelength[:,i,j]#[~spect_mask]
+            spect_spec = spect[:,i,j]#[~spect_mask]
+            spect_err_ = spect_err[:,i,j]#[~spect_mask]
               
-            a = optimise.leastsq(rv_fitting_eqn,x0 = [-24000,0,0,0], args=(wavelength[:,i], spect_masked, spect_err[:,i,j], temp_func),full_output = True)
+            a = optimise.leastsq(rv_fitting_eqn,x0 = [-24000,0,0,0], args=(spect_wave, spect_spec, spect_err_, temp_func),full_output = True)
             
             print(a[0])
-            plt.figure()
-            plt.plot(a[1]['cov_x'])
    
             plt.figure()
-            plt.plot(wavelength[:,i],a[2]['fvec'])
+            plt.plot(spect_wave,a[2]['fvec'])
             plt.show()
             
             if a[0][0] != -24000:
