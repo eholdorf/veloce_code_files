@@ -154,8 +154,10 @@ if __name__=="__main__":
                 #plt.show()
             #import pdb; pdb.set_trace()
             
+            #!!! To be neatened. All velocities should be saved in a 2D array !!!
             if a[0][0] != -24:
                rvs.append(a[0][0])
+               #Multiply the error but the square root of chi-squared. !!! Why is chi-squared so high? !!!
                rv_errs.append(np.sqrt(np.mean(a[2]['fvec']**2))*np.sqrt(a[1][0,0]))
 
             #a = optimise.least_squares(rv_fitting_eqn, x0 = [-24,0,0,0], args=(spect_wave, spect_masked, spect_err_, temp_func))
@@ -170,6 +172,8 @@ if __name__=="__main__":
         wtmn_rv = np.sum(weights*rvs)/np.sum(weights)
         wtmn_rv_err = 1/np.sqrt(np.sum(weights))
         print("Weighted mean RV (km/s): {:.4f} +/- {:.4f}".format(wtmn_rv, wtmn_rv_err))
+        #The mean square error will be significantly larger than 1 (e.g. more than 1.5) if fiber to fiber 
+        #variations are determined by more than just random errors.
         print("MSE: {:.2f}".format(np.mean((wtmn_rv - rvs)**2/rv_errs**2)))
         plt.figure()
         plt.errorbar(np.arange(19)+1, rvs, rv_errs, fmt='.')
