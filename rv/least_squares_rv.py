@@ -11,33 +11,41 @@ import astropy.constants as c
 import astropy.units as u
 from barycorrpy import get_BC_vel
 import utils
+import get_observations
 
 def create_observation_fits(standard, obs_fits, save_dir, combine_fibres = False):
-    #all_log_w, all_t_logflux, all_t_logerrflux, all_s_logflux, all_s_logerrflux, airmasses = log_scale_interpolation(standard,obs_fits,BC=False)
-    
-    dd = pyfits.open('/priv/avatar/velocedata/Data/spec_211202/191211/'+obs_fits[0:10]+'oi_extf.fits')
+       
+    dd = pyfits.open(get_observations.get_fits_path([obs_fits.encode('utf-8')])[0])
     all_log_w = dd[1].data[:,:,4:23]
     all_s_logflux = dd[0].data[:,:,4:23]
     all_s_logerrflux = dd[2].data[:,:,4:23]
-    plt.figure()
-    plt.plot(all_log_w[:,:,0], all_s_logflux[:,:,0])
-    plt.show()
 
-    wave_tell_b, telluric_spec_b, telluric_err_spec_b, target_info_b, telluric_info_b = telluric_correction(standard,obs_fits,'before',scrunch = False)
-   
+    B_plus_saved = None
+    wave_tell_b, telluric_spec_b, telluric_err_spec_b, target_info_b, telluric_info_b, B_plus_saved = telluric_correction(standard,obs_fits,'before',scrunch = True, B_plus = B_plus_saved)
     
-    wave_tell_a, telluric_spec_a, telluric_err_spec_a, target_info_a, telluric_info_a = telluric_correction(standard,obs_fits,'after', scrunch = False)
-   
-
+    wave_tell_a, telluric_spec_a, telluric_err_spec_a, target_info_a, telluric_info_a, B_plus_saved = telluric_correction(standard,obs_fits,'after', scrunch = True, B_plus = B_plus_saved)
+    
+  
     if telluric_info_a[1]!= telluric_info_b[1]:
         telluric_spec = (telluric_spec_a*(target_info_b[3] - telluric_info_b[3]) + telluric_spec_b*(target_info_a[3] - telluric_info_a[3]))/(telluric_info_a[3]-telluric_info_b[3])
+        telluric_err_spec = (((telluric_spec_a*(target_info_b[3] - telluric_info_b[3]))/(telluric_info_a[3]-telluric_info_b[3]))**2 + ((telluric_spec_b*(target_info_a[3] - telluric_info_a[3]))/(telluric_info_a[3]-telluric_info_b[3]))**2)**0.5
+        
     else:
         telluric_spec = telluric_spec_a
-         
+        telluric_err_spec = telluric_err_spec_a    
     
+    telluric = np.zeros([np.shape(all_log_w)[0],np.shape(all_log_w)[1]])
+    telluric_error = np.zeros([np.shape(all_log_w)[0],np.shape(all_log_w)[1]])
     for fibre in range(19):
-        all_s_logflux[:,:,fibre] /= telluric_spec
-        for order in range(40):
+        for order in range(40):        
+            telluric_interpolation_func = InterpolatedUnivariateSpline(wave_tell_a[:,order], telluric_spec[:,order],k=5)
+            telluric_err_interpolation_func = InterpolatedUnivariateSpline(wave_tell_a[:,order], telluric_err_spec[:,order],k=5)
+            telluric[:,order] = telluric_interpolation_func(all_log_w[:,order,fibre])
+            telluric_error[:,order] = telluric_err_interpolation_func(all_log_w[:,order,fibre])
+            for wave in range(np.shape(all_log_w)[0]):
+                all_s_logerrflux[wave,order,fibre] = ((all_s_logerrflux[wave,order,fibre]/all_s_logflux[wave,order,fibre])**2 + (telluric_error[wave,order]/telluric[wave,order])**2)**0.5
+            all_s_logflux[:,order,fibre] /= telluric[:,order]
+        
             mask = np.isnan(all_s_logflux[:,order,fibre])
             scale = np.median(all_s_logflux[:,order,fibre][~mask])
             all_s_logflux[:,order,fibre] /= scale
@@ -49,8 +57,8 @@ def create_observation_fits(standard, obs_fits, save_dir, combine_fibres = False
     
     if combine_fibres:
 
-        spect = np.zeros((22600,40))
-        spect_err = np.zeros((22600,40))
+        spect = np.zeros((np.shape(wavelength)[0],40))
+        spect_err = np.zeros((np.shape(wavelength)[0],40))
         for fibre in range(19):
             for order in range(40):
                 spect[:,order] += all_s_logflux[:,order,fibre]
@@ -63,19 +71,36 @@ def create_observation_fits(standard, obs_fits, save_dir, combine_fibres = False
     hdul.writeto(save_dir+obs_fits[0:10] + '_corrected.fits')
     
     return spect, wavelength, spect_err
-
-
+    
 #c in km/s, in order to have reasonable scaling
 c_km_s = c.c.to(u.km/u.s).value
 
-def rv_fitting_eqn(params, wave, spect, spect_err, interp_func, return_spec = False):
+def rv_jac(params, wave, spect, spect_err, interp_func,vo = 0, ve = 0):
+    pixel = (wave-0.5*(wave[0]+wave[-1]))/(wave[-1]-wave[0])
+    jac = np.zeros([len(pixel),4])
+    
+    scaling_factor = np.exp((params[1] + params[2]*pixel*(params[3]*pixel)))
+    relativistic_factor = (1+vo/c_km_s)/(1+ve/c_km_s)
+    
+    fitted_spect = interp_func(relativistic_factor* wave * (1.0 + params[0]/c_km_s))*scaling_factor
+    
+    jac[:,0] = (interp_func(relativistic_factor*wave*(1.0 + (params[0] + 1e-6)/c_km_s))*scaling_factor - fitted_spect)/(1e-6 * spect_err)
+    jac[:,1] = fitted_spect/spect_err
+    jac[:,2] = pixel * (fitted_spect/spect_err)
+    jac[:,3] = pixel*pixel * (fitted_spect/spect_err)
+    
+    return jac
+    
+def rv_fitting_eqn(params, wave, spect, spect_err, interp_func, return_spec = False, vo = 0, ve = 0):
     #print(params) #This can be used as a check...
     pixel = (wave-0.5*(wave[0]+wave[-1]))/(wave[-1]-wave[0])
+
+    scaling_factor = np.exp((params[1] + params[2]*pixel*(params[3]*pixel)))
     
-    scaling_factor = np.exp(params[1]+params[2]*pixel + params[3]*pixel**2)
+    relativistic_factor = (1+vo/c_km_s)/(1+ve/c_km_s)
     
     #!!! This isn't quite right, as it needs a relativistic correction !!!
-    fitted_spectra = interp_func(wave * (1.0 + params[0]/c_km_s))*scaling_factor
+    fitted_spectra = interp_func(relativistic_factor * wave * (1.0 + params[0]/c_km_s))*scaling_factor
     
     if return_spec:
         return fitted_spectra
@@ -85,83 +110,69 @@ if __name__=="__main__":
 
     save_dir = './' #'/home/ehold13/veloce_scripts/obs_corrected_fits/'
     
-    #s,w,se = create_observation_fits('11dec30096o.fits','11dec30096o.fits',save_dir)
-    #s,w,se = create_observation_fits('11dec30096o.fits','14dec30068o.fits',save_dir)
+    #s,w,se = create_observation_fits('11dec30096o.fits','11dec30096o.fits','/home/ehold13/veloce_scripts/obs_corrected_fits/')
+    #s,w,se = create_observation_fits('11dec30096o.fits','14dec30068o.fits','/home/ehold13/veloce_scripts/obs_corrected_fits/')
     
-    Tau_Ceti_Template = pyfits.open('/home/ehold13/veloce_scripts/Tau_Ceti_Template_dec2019_tellcor_1.fits')
-    HD85512_Template = pyfits.open('/home/ehold13/veloce_scripts/HD85512_dec2019.fits')
+    Tau_Ceti_Template = pyfits.open('/home/ehold13/veloce_scripts/Tau_Ceti_Template_15dec2019_telluric_patched.fits')
+   
+    obs = pyfits.open('/home/ehold13/veloce_scripts/obs_corrected_fits/14dec30068_corrected.fits')
     
-    obs = pyfits.open('/home/ehold13/veloce_scripts/obs_corrected_fits/11dec30096_corrected_2.fits')
     spect = obs[0].data
     wavelength = obs[1].data
     spect_err = obs[2].data
-    temp_func = InterpolatedUnivariateSpline(Tau_Ceti_Template[1].data[:,13], Tau_Ceti_Template[0].data[:,13], k=1)
-    sp = rv_fitting_eqn([-24,0,0,0],wavelength[401:3601,13,0],spect[401:3601,13,0],spect_err[401:3601,13,0],temp_func, return_spec = True)
-    if False:
+    #for fibre in range(19):
+    #    plt.figure()
+    #    plt.plot(wavelength[:,:,fibre],spect[:,:,fibre])
+    #    plt.show()
+        
+    if True:
+          
+        temp_func = InterpolatedUnivariateSpline(Tau_Ceti_Template[1].data[:,13], Tau_Ceti_Template[0].data[:,13], k=3)
+        sp = rv_fitting_eqn([-24,1e-3,1e-1,1e-1],wavelength[401:3601,13,0],spect[401:3601,13,0],spect_err[401:3601,13,0],temp_func, return_spec = True)
+
         plt.figure()
-        plt.plot(wavelength[401:3601,13,0],spect[401:3601,13,0])
+        plt.plot(wavelength[401:3601,13,0],spect[401:3601,13,0], label = 'Original Spectrum')
+        plt.plot(wavelength[401:3601,13,0],sp, label = 'Fitted Spectrum')
         plt.xlabel('Wavelength ($\AA$)')
         plt.ylabel('Flux')
-        plt.title('Original Spectrum')
-        plt.figure()
-        plt.plot(wavelength[401:3601,13,0],sp)
-        plt.xlabel('Wavelength ($\AA$)')
-        plt.ylabel('Flux')
-        plt.title('Fitted Spectrum')
-        plt.figure()
-        plt.plot(wavelength[401:3601,13,0],100*(sp-spect[401:3601,13,0])/spect[401:3601,13,0])
-        #plt.plot(100*(sp-spect[401:3601,13,0])/spect[401:3601,13,0])
-        plt.xlabel('Wavelength ($\AA$)')
-        plt.ylabel('Percentage Error')
-        plt.title('Residual')
+        plt.title('Spectrum')
+        plt.legend(loc='best')
         plt.show()
-            
-    #plt.figure()
-    #plt.plot(wavelength[:,:,0],spect[:,:,0])
-    #plt.figure()
-    #plt.plot(HD85512_Template[1].data,HD85512_Template[0].data)
-    #plt.figure()
-    #plt.plot(Tau_Ceti_Template[1].data, Tau_Ceti_Template[0].data)
-    #plt.show()
         
 
     #orders= list(range(2,15))
     #orders.extend(list(range(17,40)))
 
-    orders = [13,36,37]
+    orders = [13]
     for i in orders:
-        #temp_mask = np.isnan(Tau_Ceti_Template[0].data[:,i])
-        temp_wave = Tau_Ceti_Template[1].data[:,i]#[~temp_mask]
-        temp_spec = Tau_Ceti_Template[0].data[:,i]#[~temp_mask]  
-        temp_func = InterpolatedUnivariateSpline(temp_wave, temp_spec, k=3) 
+        temp_mask = np.isnan(Tau_Ceti_Template[0].data[:,i])
+        temp_wave = Tau_Ceti_Template[1].data[:,i][~temp_mask]
+        temp_spec = Tau_Ceti_Template[0].data[:,i][~temp_mask]  
+        temp_func = InterpolatedUnivariateSpline(temp_wave, temp_spec, k=1) 
         rvs = []
         rv_errs = []
         for j in range(19):
-            spect_mask = np.isnan(spect[500:2000,i,j])
-            spect_wave = wavelength[500:2000,i,j][~spect_mask]
-            spect_spec = spect[500:2000,i,j][~spect_mask]
-            spect_err_ = spect_err[500:2000,i,j][~spect_mask]
-              
-            a = optimise.leastsq(rv_fitting_eqn,x0 = [-24,0,0,0], args=(spect_wave, spect_spec, spect_err_, temp_func),\
-                epsfcn=1e-6, full_output = True, ftol=1e-6, gtol=1e-6)
-            
+            spect_mask = np.isnan(spect[401:3601,i,j])
+            spect_wave = wavelength[401:3601,i,j][~spect_mask]
+            spect_spec = spect[401:3601,i,j][~spect_mask]
+            spect_err_ = spect_err[401:3601,i,j][~spect_mask]
+             
+            # changing intial conditions changes answer and MSE 
+            a = optimise.leastsq(rv_fitting_eqn,x0 = [-24,1e-3,1e-3,1e-3], args=(spect_wave, spect_spec, spect_err_, temp_func), epsfcn=1e-6, full_output = True, ftol=1e-6, gtol=1e-6)
             
             print(a[0])
             
             if False:
                 plt.figure()
                 plt.plot(spect_wave,a[2]['fvec'])
-                #plt.show()
+                plt.show()
             #import pdb; pdb.set_trace()
-            
-            if a[0][0] != -24:
+            #print(type(a[0]),type(a[1]),type(a[2]))
+            if a[0][0] != -24 and not (a[1] is None):
                rvs.append(a[0][0])
+               
+               
                rv_errs.append(np.sqrt(np.mean(a[2]['fvec']**2))*np.sqrt(a[1][0,0]))
-
-            #a = optimise.least_squares(rv_fitting_eqn, x0 = [-24,0,0,0], args=(spect_wave, spect_masked, spect_err_, temp_func))
-            #if a.x[0] != -24:
-            #    val.append(a.x[0])
-            #print(a.x)
 
         rvs = np.array(rvs)
         rv_errs = np.array(rv_errs)
@@ -172,42 +183,17 @@ if __name__=="__main__":
         print("Weighted mean RV (km/s): {:.4f} +/- {:.4f}".format(wtmn_rv, wtmn_rv_err))
         print("MSE: {:.2f}".format(np.mean((wtmn_rv - rvs)**2/rv_errs**2)))
         plt.figure()
-        plt.errorbar(np.arange(19)+1, rvs, rv_errs, fmt='.')
+        plt.errorbar(np.arange(len(rvs))+1, rvs, rv_errs, fmt='.')
         plt.title('Order:' + str(i))
         plt.xlabel('Fiber num')
         plt.ylabel('Velocity (km/s)')
         plt.show()
 
 
-    BC_t, BC_star = barycentric_correction('11dec30096o.fits','14dec30068o.fits')
+        BC_t, BC_star = barycentric_correction('11dec30096o.fits','14dec30068o.fits')
     
-    print(BC_t*c.c)
+        print('True Velocity ', BC_star*c.c.to(u.km/u.s).value)
+        print('Velocity Difference (m/s) ', wtmn_rv*1000 - BC_star*c.c.to(u.m/u.s).value)
 
-    print(100*(np.median(rvs) - BC_t*c.c.to(u.km/u.s).value)/(BC_t*c.c.to(u.km/us).value))
-
-    
-    own = False
-    if own:
-        obs = pyfits.open('/home/ehold13/veloce_scripts/obs_corrected_fits/14dec30068_corrected.fits')
-        spect = obs[0].data
-        all_log_w = obs[1].data
-        all_log_w_ = all_log_w + 3/c.c.si.value*all_log_w
-        spect_err = obs[2].data
-
-        val = []
-        for j in range(19):
-            for i in range(40):  
-                temp_func = InterpolatedUnivariateSpline(all_log_w[:,i],spect[:,i,j],k=1)    
-                a = optimise.leastsq(rv_fitting_eqn,x0 = [-1,0,0,0],
-                args=(all_log_w_[
-            :,i], spect[:,i,j], spect_err[:,i,j], temp_func),full_output = True)
-                print(a[0])
-                
-                if a[0][0] != -1:
-                    val.append(a[0][0])
-        print(np.median(val))
-
-        print(100*(np.median(val) + 3)/(3))
-
-
+        print('Percentage Error ', 100*(wtmn_rv - BC_star*c.c.to(u.km/u.s).value)/(BC_star*c.c.to(u.km/u.s).value))
 

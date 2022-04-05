@@ -37,7 +37,7 @@ def get_fits_path(fits,extension = 'extf'):
         # add the path to the list of file paths
         all_files[i] = desired_file[0]
         i += 1
-    print(all_files)
+    
     return all_files
 
 #testing

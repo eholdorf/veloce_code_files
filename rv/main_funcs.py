@@ -277,7 +277,32 @@ def find_telluric_star(obs_night, time):
         science_target, telluric_star = find_telluric_star(obs_night, 'closest')
     return science_target, telluric_star
 
-def telluric_correction(scale_star, obs_night, time, scrunch = True):
+def telluric_masking(wavelengths, spectrum, order, Bplus = None):
+    tellurics = pyfits.open('/home/ehold13/veloce_scripts/Telluric_Lines_And_Widths.fits')
+    lines = tellurics[0].data[:,order]
+    mask = np.isnan(lines)
+    lines = lines[~mask]
+    widths = tellurics[1].data[:,order][~mask]
+    
+    bad_wavelengths = np.zeros(len(wavelengths))
+    
+    for i,wave in enumerate(wavelengths):
+        for j, line in enumerate(lines):
+            width = widths[j]
+            if line - width < wave and wave < line + width:
+                bad_wavelengths[i] = 1
+    
+    patched_spectrum, B_plus = utils.correct_bad(spectrum,bad_wavelengths, Bplus)
+    
+    std = np.ceil(len(spectrum)/3900)*10
+    gaussian = np.exp(-np.arange(-3*std, 3*std)**2/(2*std**2))
+    
+    smoothed_patched_spectrum = np.convolve(patched_spectrum,gaussian,mode = 'same')
+    
+    return spectrum/smoothed_patched_spectrum, B_plus
+   
+
+def telluric_correction(scale_star, obs_night, time, scrunch = True, B_plus = None):
     """
     Description
     -----------
@@ -319,16 +344,10 @@ def telluric_correction(scale_star, obs_night, time, scrunch = True):
         element 2 - byte (int) : date of the telluric star observation as in veloce_observations.fits
         element 3 - byte (float) : modified julian date for the telluric star observation
     """ 
-    # read in the data for telluric absorption lines
-    print(1)
-    telluric_absorption = Table.read('/home/ehold13/veloce_scripts/Tellurics_line_positions_98mask.txt',format='ascii.ecsv')
-    telluric_abs_lines = [line[0] for line in telluric_absorption]
-    telluric_abs_widths = [line[4] for line in telluric_absorption]
-    print(2)
     # find a telluric star for the given observation
     target_star, telluric_star = find_telluric_star(obs_night, time)
     # scrunch the data for both the telluric star and observation onto scale_star wavelength scale with no barycentric correction
-    print(3)
+    
     if scrunch:
     	wavelength, flux_scale, flux_scale_err, flux_telluric, flux_telluric_err, airmass_telluric = log_scale_interpolation(scale_star,telluric_star[1].decode('utf-8'), BC = False)
     	wavelength, flux_scale, flux_scale_err, flux_star, flux_star_err, airmass_star = log_scale_interpolation(scale_star,target_star[1].decode('utf-8'), BC = False)
@@ -336,26 +355,6 @@ def telluric_correction(scale_star, obs_night, time, scrunch = True):
     else:
         wavelength, flux_scale, flux_scale_err, flux_telluric, flux_telluric_err, airmass_telluric = log_scale_interpolation(scale_star,telluric_star[1].decode('utf-8'), BC = False,num_points = 3900)
         wavelength, flux_scale, flux_scale_err, flux_star, flux_star_err, airmass_star = log_scale_interpolation(scale_star,target_star[1].decode('utf-8'), BC = False,num_points =3900)
-    print(4)
-    plt.figure()
-    plt.plot(wavelength[:,0],flux_telluric[:,0,0])
-    
-    bad_wavelengths = np.zeros([np.shape(flux_telluric)[0],np.shape(flux_telluric)[1]])
-    for order in range(np.shape(flux_telluric)[1]):
-        for wave in range(np.shape(flux_telluric)[0]):
-            for index, absorption in enumerate(telluric_abs_lines):
-                if wavelength[wave,order] < absorption + telluric_abs_widths[index]/2 and absorption - telluric_abs_widths[index]/2 < wavelength[wave,order]:
-                    print('+1')
-                    bad_wavelengths[wave,order] = 1
-    print(5)
-    for fibre in range(19):
-        for order in range(np.shape(flux_telluric)[1]):
-            flux_telluric[:,order,fibre], Bplus = utils.correct_bad(flux_telluric[:,order,fibre], bad_wavelengths[:,order])
-    
-    plt.figure()
-    plt.plot(wavelength[:,0], flux_telluric[:,0,0])
-    #plt.show()
-        #telluric = pyfits.open('/priv/avatar/velocedata/Data/spec_211202/'+str(telluric_star[2].decode('utf-8'))+'/'+telluric_star[1].decode('utf-8')[0:10]+'oi_extf.fits')
         
 
     # create empty lists to fill with template spectrum
@@ -375,28 +374,46 @@ def telluric_correction(scale_star, obs_night, time, scrunch = True):
             for i in range(np.shape(flux_telluric)[0]):
                 # check the signal to noise, want to be greater than 3
                 if flux_telluric[i,order,fibre]> 3*flux_telluric_err[i,order,fibre]:
-                    # apply the weighted average 
-                    telluric_spec[i,order] += (flux_telluric[i,order,fibre]/scale)/(flux_telluric_err[i,order,fibre]/scale)**2
-                    
+                    # apply the weighted average
+                    weight = 1/(flux_telluric_err[i,order,fibre]/scale)**2
+                    telluric_spec[i,order] += (flux_telluric[i,order,fibre]/scale)*weight
                     error_spec[i,order] += flux_telluric_err[i,order,fibre]/scale
-                    over_error_spec[i,order] += scale**2/flux_telluric_err[i,order,fibre]**2
+                    over_error_spec[i,order] += weight
                     weights[i,order] += 1
     telluric_spec /= over_error_spec*weights
     over_error_spec /= weights
     error_spec = (1/over_error_spec)**0.5
     
-    
+    if B_plus == None:
+        B_plus_saved = []
+    else:
+        B_plus_saved = B_plus    
+    for order in range(40):
+        print('Order: ' + str(order))
+        if len(B_plus_saved)==40:
+            B_plus = B_plus_saved[order]
+        telluric_spec[:,order], Bplus = telluric_masking(wavelength[:,order], telluric_spec[:,order], order, Bplus = B_plus)
+                
+        if len(B_plus_saved) != 40:
+            B_plus_saved.append(Bplus)
+        
+        
     # if a value is equal to 0 (as it didn't have a high enough signal to noise) then set it to be NaN
     for order in range(40):
+        telluric_spec_mask = np.isnan(telluric_spec[:,order])
+        scale = np.median(telluric_spec[:,order][~telluric_spec_mask])
+        telluric_spec[:,order] /= scale
         for wave in range(np.shape(telluric_spec)[0]):
             if (telluric_spec[wave,order]==0):
                 telluric_spec[wave,order] = np.nan
-                wavelength[wave,order] = np.nan
-    # apply an airmass correction           
-    telluric_spec = telluric_spec**((airmass_star[1]/ airmass_telluric[1]))
+                wavelength[wave,order] = np.nan   
+                 
+    
+    # apply an airmass correction          
+    telluric_spec = telluric_spec**((airmass_star[1]/airmass_telluric[1]))
                        
-    return wavelength, telluric_spec, error_spec, target_star, telluric_star
-#w,spec,err,targ, tell = telluric_correction('11dec30096o.fits','11dec30096o.fits', 'closest', scrunch = False)
+    return wavelength, telluric_spec, error_spec, target_star, telluric_star, B_plus_saved
+
 def barycentric_correction(template_obs, star_obs):
     """
     Description
@@ -494,23 +511,30 @@ def generate_template(file_paths):
    
     # iterate through each observation that is wanted in the template
     num_good_pixels = np.ones([np.shape(flux_t)[0],np.shape(flux_t)[1],np.shape(flux_t)[2]],dtype = object)
+    B_plus_saved = None
     for obs in file_paths:
         print(':0')
         # find airmass corrected telluric corrections from before and after observation
-        wave_tell_b, telluric_spec_b, telluric_err_spec_b, target_info_b, telluric_info_b = telluric_correction(file_paths[0],obs, 'before')
-        wave_tell_a, telluric_spec_a, telluric_err_spec_a, target_info_a, telluric_info_a = telluric_correction(file_paths[0],obs, 'after')
+        wave_tell_b, telluric_spec_b, telluric_err_spec_b, target_info_b, telluric_info_b, B_plus_saved = telluric_correction(file_paths[0],obs, 'before', B_plus = B_plus_saved)
+        wave_tell_a, telluric_spec_a, telluric_err_spec_a, target_info_a, telluric_info_a, B_plus_saved = telluric_correction(file_paths[0],obs, 'after', B_plus = B_plus_saved)
         
         # take the time weighted average of the before and after telluric spectra, if there was only one, then no need for this step
         if telluric_info_a[1]!= telluric_info_b[1]:
             telluric_spec = (telluric_spec_a*(target_info_b[3] - telluric_info_b[3]) + telluric_spec_b*(target_info_a[3] - telluric_info_a[3]))/(telluric_info_a[3]-telluric_info_b[3])
+            telluric_err_spec = (((telluric_spec_a*(target_info_b[3] - telluric_info_b[3]))/(telluric_info_a[3]-telluric_info_b[3]))**2 + ((telluric_spec_b*(target_info_a[3] - telluric_info_a[3]))/(telluric_info_a[3]-telluric_info_b[3]))**2)**0.5
         else:
             telluric_spec = telluric_spec_a
+            telluric_err_spec = telluric_err_spec_a
         # scrunch the observation data
         wavelength, flux_t, flux_t_err, flux_s, flux_s_err, airmass = log_scale_interpolation(file_paths[0],obs,BC=False)
         
         # for each fibre in the observation, divide by the telluric spectrum
         for fibre in range(19):
+            for order in range(40):
+                for wave in range(np.shape(flux_s)[0]):
+                    flux_s_err[wave,order,fibre] = ((flux_s_err[wave,order,fibre]/flux_s[wave,order,fibre])**2 + (telluric_err_spec[wave,order]/telluric_spec[wave,order])**2)**0.5
             flux_s[:,:,fibre] /= telluric_spec
+            
         
         # calculate the barycentric correction for the observation
         template_delta_lambda, star_delta_lambda = barycentric_correction(file_paths[0],obs)   
@@ -596,14 +620,16 @@ def generate_template(file_paths):
   
     # return the template spectrum with weighted average
     return wavelength, template, error
-
-#temp_files =     ['11dec30096o.fits', '11dec30097o.fits', '12dec30132o.fits', '12dec30133o.fits', '12dec30134o.fits', '13dec30076o.fits', '13dec30077o.fits', '14dec30066o.fits', '14dec30067o.fits', '14dec30068o.fits', '15dec30097o.fits', '15dec30098o.fits', '15dec30099o.fits']
-
-#w,s,e = generate_template(temp_files)
-#primary_hdu = pyfits.PrimaryHDU(s)
-#image_hdu = pyfits.ImageHDU(w)
-#image_hdu2 = pyfits.ImageHDU(e)
-#hdul = pyfits.HDUList([primary_hdu, image_hdu, image_hdu2])
-#hdul.writeto('Tau_Ceti_Template_dec2019_telluric_patched.fits')    
+    
+if __name__=="__main__":
+    temp_files =     ['11dec30096o.fits', '11dec30097o.fits', '12dec30132o.fits', '12dec30133o.fits', '12dec30134o.fits', '13dec30076o.fits', '13dec30077o.fits', '14dec30066o.fits', '14dec30067o.fits', '14dec30068o.fits', '15dec30097o.fits', '15dec30098o.fits', '15dec30099o.fits']
+    
+    #temp_files = ['15dec30097o.fits', '15dec30098o.fits', '15dec30099o.fits']
+    w,s,e = generate_template(temp_files)
+    primary_hdu = pyfits.PrimaryHDU(s)
+    image_hdu = pyfits.ImageHDU(w)
+    image_hdu2 = pyfits.ImageHDU(e)
+    hdul = pyfits.HDUList([primary_hdu, image_hdu, image_hdu2])
+    hdul.writeto('Tau_Ceti_Template_dec2019_telluric_patched.fits')    
 
 
