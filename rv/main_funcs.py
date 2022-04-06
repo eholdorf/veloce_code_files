@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import astropy.io.fits as pyfits
 from scipy.signal import correlate
 from astropy.table import Table
-import get_observations
+from . import get_observations
 import astropy.constants as c
 import astropy.units as u
 try:
@@ -12,7 +12,7 @@ try:
 except:
     raise UserWarning("No Barycorrpy! You need to install this using 'pip install barycorrpy'")
 import scipy.optimize as opt
-import utils
+from . import utils
 
 def log_scale_interpolation(template_obs, star_obs,k=5, BC = False, num_points = 22600):
     """
@@ -624,12 +624,12 @@ def generate_template(file_paths):
 if __name__=="__main__":
     temp_files =     ['11dec30096o.fits', '11dec30097o.fits', '12dec30132o.fits', '12dec30133o.fits', '12dec30134o.fits', '13dec30076o.fits', '13dec30077o.fits', '14dec30066o.fits', '14dec30067o.fits', '14dec30068o.fits', '15dec30097o.fits', '15dec30098o.fits', '15dec30099o.fits']
     
-    #temp_files = ['15dec30097o.fits', '15dec30098o.fits', '15dec30099o.fits']
+    #temp_files = ['14dec30066o.fits', '14dec30067o.fits', '14dec30068o.fits']
     w,s,e = generate_template(temp_files)
     primary_hdu = pyfits.PrimaryHDU(s)
     image_hdu = pyfits.ImageHDU(w)
     image_hdu2 = pyfits.ImageHDU(e)
     hdul = pyfits.HDUList([primary_hdu, image_hdu, image_hdu2])
-    hdul.writeto('Tau_Ceti_Template_dec2019_telluric_patched.fits')    
+    hdul.writeto('/home/ehold13/veloce_scripts/Tau_Ceti_Template_dec2019_telluric_patched.fits')    
 
 
