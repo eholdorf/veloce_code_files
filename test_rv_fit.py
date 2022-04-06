@@ -6,6 +6,7 @@ save_dir = './' #'/home/ehold13/veloce_scripts/obs_corrected_fits/'
     #s,w,se = create_observation_fits('11dec30096o.fits',file_name,'/home/ehold13/veloce_scripts/obs_corrected_fits/')
 #s,w,se = create_observation_fits('11dec30096o.fits','14dec30068o.fits','/home/ehold13/veloce_scripts/obs_corrected_fits/')
 fitting_files = ['11dec30096','11dec30097','12dec30132','12dec30133','12dec30134', '13dec30076','13dec30077','14dec30066','14dec30067','14dec30068','15dec30097', '15dec30098', '15dec30099']
+fitting_files = fitting_files[:2] #!!!
 velocity_err = np.zeros([len(fitting_files),36])
 file_ind = 0
 for fit in fitting_files:
@@ -34,27 +35,36 @@ for fit in fitting_files:
         plt.legend(loc='best')
         plt.show()
         
-
+    #FIXME: There should be a better way than this of dealind with "bad" orders.
     orders= list(range(2,15))
     orders.extend(list(range(17,40)))
     order_ind = 0
-    #orders = [13]
+    orders = [25] #!!! Temp
     for i in orders:
-        temp_mask = np.isnan(Tau_Ceti_Template[0].data[:,i])
-        temp_wave = Tau_Ceti_Template[1].data[:,i][~temp_mask]
-        temp_spec = Tau_Ceti_Template[0].data[:,i][~temp_mask]  
+        #FIXME: The template can not have NaNs in it! Just make it smooth over gaps.
+        if np.sum(np.isnan(Tau_Ceti_Template[0].data[:,i]) > 0):
+            raise UserWarning("Can not have NaNs in template!")
+        temp_wave = Tau_Ceti_Template[1].data[:,i]
+        temp_spec = Tau_Ceti_Template[0].data[:,i] 
         temp_func = InterpolatedUnivariateSpline(temp_wave, temp_spec, k=1) 
+        temp_lwave = np.log(temp_wave)
+        temp_dlwave = temp_lwave[1]-temp_lwave[0]
         rvs = []
         rv_errs = []
         for j in range(19):
-            spect_mask = np.isnan(spect[401:3601,i,j])
-            spect_wave = wavelength[401:3601,i,j][~spect_mask]
-            spect_spec = spect[401:3601,i,j][~spect_mask]
-            spect_err_ = spect_err[401:3601,i,j][~spect_mask]
+            spect_mask = np.isnan(spect[501:3350,i,j])
+            spect_wave = wavelength[501:3350,i,j][~spect_mask]
+            spect_spec = spect[501:3350,i,j][~spect_mask]
+            spect_err_ = spect_err[501:3350,i,j][~spect_mask]
+            spect_lwave = np.log(spect_wave)
             
             # changing intial conditions changes answer and MSE 
-            a = optimise.leastsq(rv_fitting_eqn,x0 = [-24,1e-3,1e-3,1e-3], args=(spect_wave, spect_spec, spect_err_, temp_func), epsfcn=1e-6, full_output = True, ftol=1e-6, gtol=1e-6)
+            a = optimise.leastsq(rv_fitting_eqn_old,x0 = [-24,1e-3,1e-3,1e-3], args=(spect_wave, spect_spec, spect_err_, temp_func), epsfcn=1e-6, full_output = True, ftol=1e-6, gtol=1e-6)
             
+#rv_fitting_eqn(params, lwave, spect, spect_err, template, lwave0, dlwave, return_spec = False):
+            #a = optimise.leastsq(rv_fitting_eqn,x0 = [-22,1e-3,1e-3,1e-3], args=(spect_lwave, spect_spec, spect_err_, temp_spec, temp_lwave[0], temp_dlwave), \
+             #   epsfcn=1e-4, full_output = True, ftol=1e-7, gtol=1e-7)      
+
             print(a[0])
             
             if False:
@@ -97,9 +107,11 @@ for fit in fitting_files:
         velocity_err[file_ind, order_ind] = (wtmn_rv*1000 - BC_star*c.c.to(u.m/u.s).value)
         order_ind += 1
     file_ind += 1
-for order in range(36):        
-    plt.figure()   
-    plt.plot(velocity_err[:,order])
-    plt.show()
+
+if False:
+    for order in range(36):        
+        plt.figure()   
+        plt.plot(velocity_err[:,order])
+        plt.show()
 print('Velocity uncertainty, orders 89 to 99: {:.1f}'.format(np.std(np.mean(velocity_err[:, 24:34], axis=1))))
 

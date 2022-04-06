@@ -75,6 +75,37 @@ def create_observation_fits(standard, obs_fits, save_dir, combine_fibres = False
 #c in km/s, in order to have reasonable scaling
 c_km_s = c.c.to(u.km/u.s).value
 
+def interp_template(lwave, template, lwave0, dlwave, deriv=False):
+    """Interpolate at template spectrum evenly sampled in log(wavelength), 
+    at a grid of log(wave) points
+
+    Parameters
+    ----------
+    lwave: numpy array
+        (natural) logarithm of wavelength in Angstroms
+
+    template: numpy array
+        template spectrum
+
+    lwave0: (natural) logarithm of the first template wavelength
+    dlwave: (natural) logarithm spacing of the template grid
+
+    Returns
+    -------
+    Either the interpolated spectrum, or the derivative with respect to the 
+    relativistic factor (~v/c) if deriv=True
+    """
+    ix = (lwave - lwave0)/dlwave
+    #Don't go past the edges.
+    ix_int = np.maximum(np.minimum(ix.astype(int), len(template)-2), 0)
+    frac = np.maximum(np.minimum(ix - ix_int, 1), 0)
+    if deriv:
+        #The derivative of the return line below with respect to frac, divided by dlwave
+        return (template[ix_int+1] - template[ix_int])/dlwave
+    else:
+        return template[ix_int]*(1-frac) + template[ix_int+1]*frac
+
+
 def rv_jac(params, wave, spect, spect_err, interp_func,vo = 0, ve = 0):
     pixel = (wave-0.5*(wave[0]+wave[-1]))/(wave[-1]-wave[0])
     jac = np.zeros([len(pixel),4])
@@ -106,20 +137,22 @@ def rv_fitting_eqn_old(params, wave, spect, spect_err, interp_func, return_spec 
         return fitted_spectra
     return (fitted_spectra - spect)/spect_err
     
-def rv_fitting_eqn(params, wave, spect, spect_err, interp_func, return_spec = False):
+def rv_fitting_eqn(params, lwave, spect, spect_err, template, lwave0, dlwave, return_spec = False):
     #print(params) #This can be used as a check...
-    pixel = (wave-0.5*(wave[0]+wave[-1]))/(wave[-1]-wave[0])
+    pixel = (lwave-0.5*(lwave[0]+lwave[-1]))/(lwave[-1]-lwave[0])
 
-    scaling_factor = np.exp((params[1] + params[2]*pixel*(params[3]*pixel)))
+    scaling_factor = np.exp(params[1] + params[2]*pixel+ params[3]*pixel**2)
     
     beta = params[0]/c_km_s
     relativistic_factor = np.sqrt( (1+beta)/(1-beta) )
     
-    fitted_spectra = interp_func(relativistic_factor * wave )*scaling_factor
+    #fitted_spectra = interp_func(relativistic_factor * wave )*scaling_factor
+    fitted_spectra = interp_template(lwave + np.log(relativistic_factor), template, lwave0, dlwave)*scaling_factor
     
     if return_spec:
         return fitted_spectra
     return (fitted_spectra - spect)/spect_err
+
 
 
 
