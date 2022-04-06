@@ -10,8 +10,8 @@ import scipy.optimize as optimise
 import astropy.constants as c
 import astropy.units as u
 from barycorrpy import get_BC_vel
-import utils
-import get_observations
+from . import utils
+from . import get_observations
 
 def create_observation_fits(standard, obs_fits, save_dir, combine_fibres = False):
        
@@ -91,16 +91,31 @@ def rv_jac(params, wave, spect, spect_err, interp_func,vo = 0, ve = 0):
     
     return jac
     
-def rv_fitting_eqn(params, wave, spect, spect_err, interp_func, return_spec = False, vo = 0, ve = 0):
+def rv_fitting_eqn_old(params, wave, spect, spect_err, interp_func, return_spec = False):
     #print(params) #This can be used as a check...
     pixel = (wave-0.5*(wave[0]+wave[-1]))/(wave[-1]-wave[0])
 
     scaling_factor = np.exp((params[1] + params[2]*pixel*(params[3]*pixel)))
     
-    relativistic_factor = (1+vo/c_km_s)/(1+ve/c_km_s)
+    vbeta = params[0]/c_km_s)
+    relativistic_factor = np.sqrt( (1+beta)/(1-beta) )
     
-    #!!! This isn't quite right, as it needs a relativistic correction !!!
-    fitted_spectra = interp_func(relativistic_factor * wave * (1.0 + params[0]/c_km_s))*scaling_factor
+    fitted_spectra = interp_func(relativistic_factor * wave )*scaling_factor
+    
+    if return_spec:
+        return fitted_spectra
+    return (fitted_spectra - spect)/spect_err
+    
+def rv_fitting_eqn(params, wave, spect, spect_err, interp_func, return_spec = False):
+    #print(params) #This can be used as a check...
+    pixel = (wave-0.5*(wave[0]+wave[-1]))/(wave[-1]-wave[0])
+
+    scaling_factor = np.exp((params[1] + params[2]*pixel*(params[3]*pixel)))
+    
+    vbeta = params[0]/c_km_s)
+    relativistic_factor = np.sqrt( (1+beta)/(1-beta) )
+    
+    fitted_spectra = interp_func(relativistic_factor * wave )*scaling_factor
     
     if return_spec:
         return fitted_spectra
