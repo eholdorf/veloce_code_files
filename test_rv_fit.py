@@ -101,3 +101,5 @@ for order in range(36):
     plt.figure()   
     plt.plot(velocity_err[:,order])
     plt.show()
+print('Velocity uncertainty, orders 89 to 99: {:.1f}'.format(np.std(np.mean(velocity_err[:, 24:34], axis=1))))
+
