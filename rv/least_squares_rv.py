@@ -126,7 +126,7 @@ def rv_fitting_eqn_old(params, wave, spect, spect_err, interp_func, return_spec 
     #print(params) #This can be used as a check...
     pixel = (wave-0.5*(wave[0]+wave[-1]))/(wave[-1]-wave[0])
 
-    scaling_factor = np.exp((params[1] + params[2]*pixel*(params[3]*pixel)))
+    scaling_factor = np.exp(params[1] + params[2]*pixel + params[3]*pixel**2)
     
     beta = params[0]/c_km_s
     relativistic_factor = np.sqrt( (1+beta)/(1-beta) )
