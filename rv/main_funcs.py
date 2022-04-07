@@ -4,8 +4,7 @@ import matplotlib.pyplot as plt
 import astropy.io.fits as pyfits
 from scipy.signal import correlate
 from astropy.table import Table
-#from . import get_observations
-import get_observations
+from . import get_observations
 import astropy.constants as c
 import astropy.units as u
 try:
@@ -13,8 +12,7 @@ try:
 except:
     raise UserWarning("No Barycorrpy! You need to install this using 'pip install barycorrpy'")
 import scipy.optimize as opt
-#from . import utils
-import utils
+from . import utils
 
 def log_scale_interpolation(template_obs, star_obs, template_date, star_date, k=5, BC = False, num_points = 22600):
     """
