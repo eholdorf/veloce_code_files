@@ -41,8 +41,8 @@ def get_fits_path(fits,extension = 'extf'):
     return all_files
 
 #testing
-#dd = Table.read('veloce_observations.fits')        
-#get_fits_path([dd[0][7][0],dd[0][7][1]])
+#dd = Table.read('/home/ehold13/veloce_scripts/veloce_observations.fits')        
+#print(get_fits_path([dd[0][7][0],dd[0][7][1]])[0][41:47])
         
 def get_folder(fits):
     all_folders = ['']*len(fits)
@@ -64,7 +64,6 @@ def get_folder(fits):
                 folder = desired_file[0][33:39]
             all_folders[i] = folder
             i += 1
-    #print(all_folders)
     return all_folders
     
 #testing

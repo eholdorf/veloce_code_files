@@ -2,7 +2,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import astropy.io.fits as pyfits
 from astropy.table import Table
-from main_funcs import log_scale_interpolation
 from main_funcs import telluric_correction
 from main_funcs import barycentric_correction
 from scipy.interpolate import InterpolatedUnivariateSpline
@@ -13,17 +12,21 @@ from barycorrpy import get_BC_vel
 import utils
 import get_observations
 
-def create_observation_fits(standard, obs_fits, save_dir, combine_fibres = False):
+def create_observation_fits(standard, obs_fits, date, save_dir, combine_fibres = False):
+    file_path = get_observations.get_fits_path([obs_fits.encode('utf-8')])
+    for path in file_path:
+        if path[41:47] == date:
+            fits_path = path
        
-    dd = pyfits.open(get_observations.get_fits_path([obs_fits.encode('utf-8')])[0])
+    dd = pyfits.open(fits_path)
     all_log_w = dd[1].data[:,:,4:23]
     all_s_logflux = dd[0].data[:,:,4:23]
     all_s_logerrflux = dd[2].data[:,:,4:23]
 
     B_plus_saved = None
-    wave_tell_b, telluric_spec_b, telluric_err_spec_b, target_info_b, telluric_info_b, B_plus_saved = telluric_correction(standard,obs_fits,'before',scrunch = True, B_plus = B_plus_saved)
+    wave_tell_b, telluric_spec_b, telluric_err_spec_b, target_info_b, telluric_info_b, B_plus_saved = telluric_correction(obs_fits,'before', fits_path[41:47] ,scrunch = True, B_plus = B_plus_saved)
     
-    wave_tell_a, telluric_spec_a, telluric_err_spec_a, target_info_a, telluric_info_a, B_plus_saved = telluric_correction(standard,obs_fits,'after', scrunch = True, B_plus = B_plus_saved)
+    wave_tell_a, telluric_spec_a, telluric_err_spec_a, target_info_a, telluric_info_a, B_plus_saved = telluric_correction(obs_fits,'after', fits_path[41:47], scrunch = True, B_plus = B_plus_saved)
     
   
     if telluric_info_a[1]!= telluric_info_b[1]:
@@ -114,9 +117,10 @@ if __name__=="__main__":
         #s,w,se = create_observation_fits('11dec30096o.fits',file_name,'/home/ehold13/veloce_scripts/obs_corrected_fits/')
     #s,w,se = create_observation_fits('11dec30096o.fits','14dec30068o.fits','/home/ehold13/veloce_scripts/obs_corrected_fits/')
     fitting_files = ['11dec30096','11dec30097','12dec30132','12dec30133','12dec30134', '13dec30076','13dec30077','14dec30066','14dec30067','14dec30068','15dec30097', '15dec30098', '15dec30099']
+    fitting_dates = ['191211','191211','191212','191212','191212','191213','191213','191214','191214','191214','191215','191215','191215']
     velocity_err = np.zeros([len(fitting_files),36])
     file_ind = 0
-    for fit in fitting_files:
+    for fit_index,fit in enumerate(fitting_files):
         Tau_Ceti_Template = pyfits.open('/home/ehold13/veloce_scripts/Tau_Ceti_Template_14dec2019_telluric_patched.fits')
         
         obs_file_path = '/home/ehold13/veloce_scripts/obs_corrected_fits/'+fit+'_corrected.fits'
@@ -196,7 +200,7 @@ if __name__=="__main__":
                 plt.show()
             
             
-            BC_t, BC_star = barycentric_correction('11dec30096o.fits',obs_file_path[48:58]+'o.fits')
+            BC_t, BC_star = barycentric_correction('11dec30096o.fits',obs_file_path[48:58]+'o.fits','191211',fitting_dates[fit_index])
             
             print('True Velocity ', BC_star*c.c.to(u.km/u.s).value)
             print('Velocity Difference (m/s) ', wtmn_rv*1000 - BC_star*c.c.to(u.m/u.s).value)
@@ -207,5 +211,13 @@ if __name__=="__main__":
         file_ind += 1
     for order in range(36):        
         plt.figure()   
-        plt.plot(velocity_err[:,order])
+        plt.plot([1,2],velocity_err[0:2,order],'.',marker=".", markersize=10,label = '11dec2019')
+        plt.plot([3,4,5],velocity_err[2:5,order],'.',marker=".", markersize=10,label = '12dec2019')
+        plt.plot([6,7],velocity_err[5:7,order],'.',marker=".", markersize=10,label = '13dec2019')
+        plt.plot([8,9,10],velocity_err[7:10,order],'.',marker=".", markersize=10,label = '14dec2019')
+        plt.plot( [11,12,13],velocity_err[10:13,order],'.',marker=".", markersize=10,label = '15dec2019')
+        plt.title(orders[order])
+        plt.ylabel('Velocity Error (m/s)')
+        plt.xlabel('Observation Number')
+        plt.legend(loc='best')
         plt.show()
