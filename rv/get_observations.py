@@ -27,6 +27,7 @@ def get_fits_path(fits,extension = 'extf'):
     i = 0
     for fit in fits:
         # decode the byte to a string and extract the start of the string which contains the date and observation
+       
         fit = fit.decode("utf-8")[0:10]
         # check the given extension is valid
         if extension not in ['extf','extv','exts']:

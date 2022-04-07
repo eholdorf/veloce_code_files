@@ -604,10 +604,6 @@ def generate_template(file_paths, dates, save_spect = False, save_name = ''):
         error_good_pixels = np.zeros([np.shape(flux_s)[0],np.shape(flux_s)[1],np.shape(flux_s)[2]],dtype = object)
         one_over_error_good_pixels = np.zeros([np.shape(flux_s)[0],np.shape(flux_s)[1],np.shape(flux_s)[2]],dtype = object)
         
-        print(np.shape(flux_s))
-        print(np.shape(flux_s_err))
-        print(np.shape(wavelength))
-        print(np.shape(wavelength_standard))
         # iterate through the fibres
         for fibre in range(19):
             # iterate through the orders
@@ -638,7 +634,7 @@ def generate_template(file_paths, dates, save_spect = False, save_name = ''):
         template_spectrum += good_pixels
         template_spectrum_error += error_good_pixels
         template_spectrum_one_on_error += one_over_error_good_pixels
-    
+
     # divide by the number of pixels that went into each sum, and divide by the weights (1/sum(error))**0.5
     template_spectrum_error /= num_good_pixels
     template_spectrum_one_on_error /= num_good_pixels
@@ -652,7 +648,7 @@ def generate_template(file_paths, dates, save_spect = False, save_name = ''):
     # for each fibre, find the median difference between it and median_fibre_spectrum and remove pixels with a difference much larger than this
     template = np.zeros([np.shape(template_spectrum)[0],np.shape(template_spectrum)[1]])
     error = np.zeros([np.shape(template_spectrum)[0],np.shape(template_spectrum)[1]])
-    one_on_error = np.zeros([np.shape(template_spectrum)[0],np.shape(template_spetrum)[1]])
+    one_on_error = np.zeros([np.shape(template_spectrum)[0],np.shape(template_spectrum)[1]])
     weights = np.ones([np.shape(template_spectrum)[0],np.shape(template_spectrum)[1]])
     
     for fibre in range(19):
@@ -681,6 +677,7 @@ def generate_template(file_paths, dates, save_spect = False, save_name = ''):
     template /= weights*one_on_error
     error = (1/one_on_error)**0.5
     # set all 0 values to NaN and values which have a low signal to noise
+    print('Doing a signal to noise cut.')
     for order in range(40):
         for wave in range(np.shape(diff)[0]):
             if (template[wave,order]==0)| (template[wave,order]<3*error[wave,order]):

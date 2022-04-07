@@ -2,21 +2,20 @@ import numpy as np
 import matplotlib.pyplot as plt
 import astropy.io.fits as pyfits
 from astropy.table import Table
-<<<<<<< HEAD
 from main_funcs import telluric_correction
 from main_funcs import barycentric_correction
-=======
-from .main_funcs import log_scale_interpolation
-from .main_funcs import telluric_correction
-from .main_funcs import barycentric_correction
->>>>>>> b4eaaf793b1dc113b3a5c534f6025f915effa11e
+#from .main_funcs import log_scale_interpolation
+#from .main_funcs import telluric_correction
+#from .main_funcs import barycentric_correction
 from scipy.interpolate import InterpolatedUnivariateSpline
 import scipy.optimize as optimise
 import astropy.constants as c
 import astropy.units as u
 from barycorrpy import get_BC_vel
-from . import utils
-from . import get_observations
+#from . import utils
+#from . import get_observations
+import utils
+import get_observations
 
 def create_observation_fits(standard, obs_fits, date, save_dir, combine_fibres = False):
     file_path = get_observations.get_fits_path([obs_fits.encode('utf-8')])
@@ -171,8 +170,12 @@ if __name__=="__main__":
         #s,w,se = create_observation_fits('11dec30096o.fits',file_name,'/home/ehold13/veloce_scripts/obs_corrected_fits/')
     #s,w,se = create_observation_fits('11dec30096o.fits','14dec30068o.fits','/home/ehold13/veloce_scripts/obs_corrected_fits/')
     fitting_files = ['11dec30096','11dec30097','12dec30132','12dec30133','12dec30134', '13dec30076','13dec30077','14dec30066','14dec30067','14dec30068','15dec30097', '15dec30098', '15dec30099']
+    
     fitting_dates = ['191211','191211','191212','191212','191212','191213','191213','191214','191214','191214','191215','191215','191215']
-    velocity_err = np.zeros([len(fitting_files),36])
+    
+    fitting_files =['11dec30096']
+    fitting_dates = ['191211']
+    
     file_ind = 0
     for fit_index,fit in enumerate(fitting_files):
         Tau_Ceti_Template = pyfits.open('/home/ehold13/veloce_scripts/Tau_Ceti_Template_14dec2019_telluric_patched.fits')
@@ -189,7 +192,7 @@ if __name__=="__main__":
             order = 13
               
             temp_func = InterpolatedUnivariateSpline(Tau_Ceti_Template[1].data[:,order], Tau_Ceti_Template[0].data[:,order], k=1)
-            sp = rv_fitting_eqn([-24,1e-3,1e-1,1e-1],wavelength[401:3601,order,0],spect[401:3601,order,0],spect_err[401:3601,order,0],temp_func, return_spec = True)
+            sp = rv_fitting_eqn_old([-24,1e-3,1e-1,1e-1],wavelength[401:3601,order,0],spect[401:3601,order,0],spect_err[401:3601,order,0],temp_func, return_spec = True)
 
             plt.figure()
             plt.plot(wavelength[401:3601,order,0],spect[401:3601,order,0], label = 'Original Spectrum')
@@ -205,6 +208,7 @@ if __name__=="__main__":
         orders.extend(list(range(17,40)))
         order_ind = 0
         #orders = [13]
+        velocity_diff = np.zeros([len(fitting_files),len(orders)])
         for i in orders:
             temp_mask = np.isnan(Tau_Ceti_Template[0].data[:,i])
             temp_wave = Tau_Ceti_Template[1].data[:,i][~temp_mask]
@@ -219,7 +223,7 @@ if __name__=="__main__":
                 spect_err_ = spect_err[401:3601,i,j][~spect_mask]
                 
                 # changing intial conditions changes answer and MSE 
-                a = optimise.leastsq(rv_fitting_eqn,x0 = [-24,1e-3,1e-3,1e-3], args=(spect_wave, spect_spec, spect_err_, temp_func), epsfcn=1e-6, full_output = True, ftol=1e-6, gtol=1e-6)
+                a = optimise.leastsq(rv_fitting_eqn_old,x0 = [-24,1e-3,1e-3,1e-3], args=(spect_wave, spect_spec, spect_err_, temp_func), epsfcn=1e-6, full_output = True, ftol=1e-6, gtol=1e-6)
                 
                 print(a[0])
                 
@@ -260,20 +264,21 @@ if __name__=="__main__":
             print('Velocity Difference (m/s) ', wtmn_rv*1000 - BC_star*c.c.to(u.m/u.s).value)
 
             print('Percentage Error ', 100*(wtmn_rv - BC_star*c.c.to(u.km/u.s).value)/(BC_star*c.c.to(u.km/u.s).value))
-            velocity_err[file_ind, order_ind] = (wtmn_rv*1000 - BC_star*c.c.to(u.m/u.s).value)
+            velocity_diff[file_ind, order_ind] = (wtmn_rv*1000 - BC_star*c.c.to(u.m/u.s).value)
             order_ind += 1
         file_ind += 1
-    for order in range(36):        
-        plt.figure()   
-        plt.plot([1,2],velocity_err[0:2,order],'.',marker=".", markersize=10,label = '11dec2019')
-        plt.plot([3,4,5],velocity_err[2:5,order],'.',marker=".", markersize=10,label = '12dec2019')
-        plt.plot([6,7],velocity_err[5:7,order],'.',marker=".", markersize=10,label = '13dec2019')
-        plt.plot([8,9,10],velocity_err[7:10,order],'.',marker=".", markersize=10,label = '14dec2019')
-        plt.plot( [11,12,13],velocity_err[10:13,order],'.',marker=".", markersize=10,label = '15dec2019')
-        plt.title(orders[order])
-        plt.ylabel('Velocity Error (m/s)')
-        plt.xlabel('Observation Number')
-        plt.legend(loc='best')
-        plt.show()
+    if False:
+        for order in range(np.shape(velocity_diff)[1]):        
+            plt.figure()   
+            plt.plot([1,2],velocity_diff[0:2,order],'.',marker=".", markersize=10,label = '11dec2019')
+            plt.plot([3,4,5],velocity_diff[2:5,order],'.',marker=".", markersize=10,label = '12dec2019')
+            plt.plot([6,7],velocity_diff[5:7,order],'.',marker=".", markersize=10,label = '13dec2019')
+            plt.plot([8,9,10],velocity_diff[7:10,order],'.',marker=".", markersize=10,label = '14dec2019')
+            plt.plot( [11,12,13],velocity_diff[10:13,order],'.',marker=".", markersize=10,label = '15dec2019')
+            plt.title(orders[order])
+            plt.ylabel('Velocity Error (m/s)')
+            plt.xlabel('Observation Number')
+            plt.legend(loc='best')
+            plt.show()
 
 
