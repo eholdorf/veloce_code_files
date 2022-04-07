@@ -35,7 +35,7 @@ for fit in fitting_files:
         plt.legend(loc='best')
         plt.show()
         
-    #FIXME: There should be a better way than this of dealind with "bad" orders.
+    #FIXME: There should be a better way than this of dealing with "bad" orders.
     orders= list(range(2,15))
     orders.extend(list(range(17,40)))
     order_ind = 0
