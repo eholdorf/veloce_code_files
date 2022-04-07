@@ -4,7 +4,7 @@ import astropy.io.fits as pyfits
 from astropy.table import Table
 from .main_funcs import log_scale_interpolation
 from .main_funcs import telluric_correction
-from .main_funcs import barycentric_correction
+
 from scipy.interpolate import InterpolatedUnivariateSpline
 import scipy.optimize as optimise
 import astropy.constants as c

@@ -1,4 +1,5 @@
 from rv.least_squares_rv import *
+from rv.main_funcs import barycentric_correction
 
 save_dir = './' #'/home/ehold13/veloce_scripts/obs_corrected_fits/'
 #files = ['11dec30097o.fits', '12dec30132o.fits', '12dec30133o.fits', '12dec30134o.fits', '13dec30076o.fits', '13dec30077o.fits', '14dec30066o.fits', '14dec30067o.fits', '15dec30097o.fits', '15dec30098o.fits', '15dec30099o.fits']
@@ -98,7 +99,7 @@ for fit in fitting_files:
             plt.show()
         
         
-        BC_t, BC_star = barycentric_correction('11dec30096o.fits',obs_file_path[48:58]+'o.fits')
+        BC_t, BC_star = barycentric_correction('11dec30096o.fits',obs_file_path[48:58]+'o.fits','191211','191211')
         
         print('True Velocity ', BC_star*c.c.to(u.km/u.s).value)
         print('Velocity Difference (m/s) ', wtmn_rv*1000 - BC_star*c.c.to(u.m/u.s).value)
