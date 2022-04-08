@@ -463,7 +463,7 @@ def telluric_correction(obs_night, time, date, scrunch = True, B_plus = None, ai
                        
     return wavelength, telluric_spec, error_spec, target_star, telluric_star, B_plus_saved
 
-def barycentric_correction(template_obs, star_obs, template_date, star_date):
+def barycentric_correction(template_obs, star_obs, template_date, star_date, table_dir='/priv/avatar/velocedata/anu_processing/'):
     """
     Description
     -----------
@@ -486,7 +486,7 @@ def barycentric_correction(template_obs, star_obs, template_date, star_date):
         v/c for star_obs where v is the barycentric velocity
     """
     # find and save the information for the template and for the star obervations which are found in veloce_observations.fits file
-    veloce_obs = Table.read('/home/ehold13/veloce_scripts/veloce_observations.fits')
+    veloce_obs = Table.read(table_dir + 'veloce_observations.fits')
     template_i = 0
     template_j = 0
     template_obs_num = 0

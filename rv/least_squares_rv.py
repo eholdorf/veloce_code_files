@@ -96,12 +96,17 @@ def interp_template(lwave, template, lwave0, dlwave, deriv=False):
     Returns
     -------
     Either the interpolated spectrum, or the derivative with respect to the 
-    relativistic factor (~v/c) if deriv=True
+    relativistic factor (~v/c), which is the same as the derivative 
+    with respect to log(wave) if deriv=True
     """
     ix = (lwave - lwave0)/dlwave
     #Don't go past the edges.
-    ix_int = np.maximum(np.minimum(ix.astype(int), len(template)-2), 0)
-    frac = np.maximum(np.minimum(ix - ix_int, 1), 0)
+    if (np.min(ix) < 0) or (np.max(ix) > len(template)-1):
+        raise UserWarning("Input wavelength outside range!")
+    #ix_int = np.maximum(np.minimum(ix.astype(int), len(template)-2), 0)
+    #frac = np.maximum(np.minimum(ix - ix_int, 1), 0)
+    ix_int = ix.astype(int)
+    frac = ix - ix_int
     if deriv:
         #The derivative of the return line below with respect to frac, divided by dlwave
         return (template[ix_int+1] - template[ix_int])/dlwave
@@ -109,7 +114,9 @@ def interp_template(lwave, template, lwave0, dlwave, deriv=False):
         return template[ix_int]*(1-frac) + template[ix_int+1]*frac
 
 
-def rv_jac(params, wave, spect, spect_err, interp_func,vo = 0, ve = 0):
+def rv_jac_old(params, wave, spect, spect_err, interp_func,vo = 0, ve = 0):
+    """This was Erin's original version of rv_jac. or some reason, it didn't quite
+    function... maybe because of the error in scaling_factor"""
     pixel = (wave-0.5*(wave[0]+wave[-1]))/(wave[-1]-wave[0])
     jac = np.zeros([len(pixel),4])
     
@@ -126,6 +133,8 @@ def rv_jac(params, wave, spect, spect_err, interp_func,vo = 0, ve = 0):
     return jac
     
 def rv_fitting_eqn_old(params, wave, spect, spect_err, interp_func, return_spec = False):
+    """RV fitting based on a UnivariateSpline interpolation function
+    """
     #print(params) #This can be used as a check...
     pixel = (wave-0.5*(wave[0]+wave[-1]))/(wave[-1]-wave[0])
 
@@ -141,6 +150,30 @@ def rv_fitting_eqn_old(params, wave, spect, spect_err, interp_func, return_spec 
     return (fitted_spectra - spect)/spect_err
     
 def rv_fitting_eqn(params, lwave, spect, spect_err, template, lwave0, dlwave, return_spec = False):
+    """Calculate the resicual vector for RV fitting. 
+
+    Parameters
+    ----------
+    params: numpy array
+        rv in in km/s, multiplier, linear and parabolic spectral slope.
+    lwave: numpy array
+        Logarithm of wavelength in Angstroms for target spectrum.
+    spect: numpy array
+        target spectrum
+    spect_err: numpy array
+        uuncertainties in the target spectrum
+    template: numpy array
+        Template on a logarithmic grid.
+    lwave0: logarithm of the first element of the template's wavelength
+    dlwave: logarithmic step between wavelengths
+    return_spec: bool
+        Set to true to return the fitted spectrum.
+
+    Returns
+    -------
+    out: numpy array
+        Either the residual vector of fitted spectrum (see return_spec)
+    """
     #print(params) #This can be used as a check...
     pixel = (lwave-0.5*(lwave[0]+lwave[-1]))/(lwave[-1]-lwave[0])
 
@@ -155,5 +188,58 @@ def rv_fitting_eqn(params, lwave, spect, spect_err, template, lwave0, dlwave, re
     if return_spec:
         return fitted_spectra
     return (fitted_spectra - spect)/spect_err
+
+def rv_jac(params, lwave, spect, spect_err, template, lwave0, dlwave):
+    """Calculate the Jacobian for RV fitting. Requires 2 calles to interp_template (one of which is
+    likely redundant if least_squares also calles rv_fitting_eqn).
+
+    Parameters
+    ----------
+    params: numpy array
+        rv in in km/s, multiplier, linear and parabolic spectral slope.
+    lwave: numpy array
+        Logarithm of wavelength in Angstroms for target spectrum.
+    spect: numpy array
+        target spectrum
+    spect_err: numpy array
+        uuncertainties in the target spectrum
+    template: numpy array
+        Template on a logarithmic grid.
+    lwave0: logarithm of the first element of the template's wavelength
+    dlwave: logarithmic step between wavelengths
+
+    Returns
+    -------
+    jac: numpy array
+        spectrum_length x 4 Jacobian.
+    """
+    pixel = (lwave-0.5*(lwave[0]+lwave[-1]))/(lwave[-1]-lwave[0])
+    jac = np.zeros([len(pixel),4])
+    
+    scaling_factor = np.exp(params[1] + params[2]*pixel+ params[3]*pixel**2)
+    beta = params[0]/c_km_s
+    relativistic_factor = np.sqrt( (1+beta)/(1-beta) )
+    
+    fitted_spect = interp_template(lwave + np.log(relativistic_factor), template, lwave0, dlwave)*scaling_factor
+    
+    jac[:,0] = interp_template(lwave + np.log(relativistic_factor), template, lwave0, dlwave, deriv=True)/c_km_s*scaling_factor/spect_err
+    jac[:,1] = fitted_spect/spect_err
+    jac[:,2] = pixel * (fitted_spect/spect_err)
+    jac[:,3] = pixel*pixel * (fitted_spect/spect_err)
+    
+    return jac
+
+def test_rv_chi2(params, rvs, lwave, spect, spect_err, template, lwave0, dlwave):
+    """
+    Test the RV chi^2 curve as a function of RV.
+    """
+    chi2s = np.empty_like(rvs)
+    for i in range(len(rvs)):
+        thisparams = params.copy()
+        thisparams[0] = rvs[i]
+        resid = rv_fitting_eqn(thisparams, lwave, spect, spect_err, template, lwave0, dlwave)
+        chi2s[i] = np.sum(resid**2)
+    return chi2s
+
     
 
