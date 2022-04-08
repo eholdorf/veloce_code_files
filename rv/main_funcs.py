@@ -444,7 +444,7 @@ def telluric_correction(obs_night, time, date, scrunch = True, B_plus = None, ai
                 
         if len(B_plus_saved) != 40:
             B_plus_saved.append(Bplus)
-        
+    np.save('/home/ehold13/veloce_scripts/B_plus_num_points_22600.npy', np.array(B_plus_saved),allow_pickle = True)    
         
     # if a value is equal to 0 (as it didn't have a high enough signal to noise) then set it to be NaN
     for order in range(40):
@@ -685,21 +685,21 @@ def generate_template(file_paths, dates, save_spect = False, save_name = ''):
     # return the template spectrum with weighted average
     if save_spect:
         primary_hdu = pyfits.PrimaryHDU(template)
-        image_hdu = pyfits.ImageHDU(wavelength)
+        image_hdu = pyfits.ImageHDU(wavelength_standard)
         image_hdu2 = pyfits.ImageHDU(error)
         hdul = pyfits.HDUList([primary_hdu, image_hdu, image_hdu2])
         hdul.writeto('/home/ehold13/veloce_scripts/'+save_name+'.fits') 
-    return wavelength, template, error
+    return wavelength_standard, template, error
     
-if __name__=="__main__":
-    temp_files =     ['11dec30096o.fits', '11dec30097o.fits', '12dec30132o.fits', '12dec30133o.fits', '12dec30134o.fits', '13dec30076o.fits', '13dec30077o.fits', '14dec30066o.fits', '14dec30067o.fits', '14dec30068o.fits', '15dec30097o.fits', '15dec30098o.fits', '15dec30099o.fits']
-    temp_dates = ['191211','191211','191212','191212','191212','191213','191213','191214','191214','191214','191215','191215','191215']
+#if __name__=="__main__":
+#    temp_files =     ['11dec30096o.fits', '11dec30097o.fits', '12dec30132o.fits', '12dec30133o.fits', '12dec30134o.fits', '13dec30076o.fits', '13dec30077o.fits', '14dec30066o.fits', '14dec30067o.fits', '14dec30068o.fits', '15dec30097o.fits', '15dec30098o.fits', '15dec30099o.fits']
+#    temp_dates = ['191211','191211','191212','191212','191212','191213','191213','191214','191214','191214','191215','191215','191215']
     #temp_files = ['14dec30066o.fits', '14dec30067o.fits', '14dec30068o.fits']
-    w,s,e = generate_template(temp_files[0:2], temp_dates[0:2])
-    primary_hdu = pyfits.PrimaryHDU(s)
-    image_hdu = pyfits.ImageHDU(w)
-    image_hdu2 = pyfits.ImageHDU(e)
-    hdul = pyfits.HDUList([primary_hdu, image_hdu, image_hdu2])
-    hdul.writeto('/home/ehold13/veloce_scripts/Tau_Ceti_Template_11dec2019_telluric_patched.fits')    
+#    w,s,e = generate_template(temp_files[0:2], temp_dates[0:2])
+#    primary_hdu = pyfits.PrimaryHDU(s)
+#    image_hdu = pyfits.ImageHDU(w)
+#    image_hdu2 = pyfits.ImageHDU(e)
+#    hdul = pyfits.HDUList([primary_hdu, image_hdu, image_hdu2])
+#    hdul.writeto('/home/ehold13/veloce_scripts/Tau_Ceti_Template_11dec2019_telluric_patched.fits')    
 
 

@@ -11,7 +11,7 @@ fitting_files = fitting_files[:2] #!!!
 velocity_err = np.zeros([len(fitting_files),36])
 file_ind = 0
 for fit in fitting_files:
-    Tau_Ceti_Template = pyfits.open('/home/ehold13/veloce_scripts/Tau_Ceti_Template_14dec2019_telluric_patched.fits')
+    Tau_Ceti_Template = pyfits.open('/home/ehold13/veloce_scripts/Tau_Ceti_Template_11dec2019_telluric_patched.fits')
     
     obs_file_path = '/home/ehold13/veloce_scripts/obs_corrected_fits/'+fit+'_corrected.fits'
     obs = pyfits.open(obs_file_path)
@@ -19,13 +19,14 @@ for fit in fitting_files:
     spect = obs[0].data
     wavelength = obs[1].data
     spect_err = obs[2].data
-    
+    plt.plot(Tau_Ceti_Template[1].data[:,:], Tau_Ceti_Template[0].data[:,:])
+    plt.show()
         
     if False:
         order = 13
           
         temp_func = InterpolatedUnivariateSpline(Tau_Ceti_Template[1].data[:,order], Tau_Ceti_Template[0].data[:,order], k=1)
-        sp = rv_fitting_eqn([-24,1e-3,1e-1,1e-1],wavelength[401:3601,order,0],spect[401:3601,order,0],spect_err[401:3601,order,0],temp_func, return_spec = True)
+        sp = rv_fitting_eqn_old([-24,1e-3,1e-1,1e-1],wavelength[401:3601,order,0],spect[401:3601,order,0],spect_err[401:3601,order,0],temp_func, return_spec = True)
 
         plt.figure()
         plt.plot(wavelength[401:3601,order,0],spect[401:3601,order,0], label = 'Original Spectrum')
