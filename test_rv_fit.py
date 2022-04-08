@@ -137,5 +137,8 @@ if False:
         plt.figure()   
         plt.plot(velocity_err[:,order])
         plt.show()
-print('Velocity uncertainty, orders 89 to 99: {:.1f}'.format(np.std(np.mean(velocity_err[:, 24:34], axis=1))))
+print('Velocity uncertainty, orders 89 to 99 (m/s): {:.1f}'.format(np.std(np.mean(velocity_err[:, 24:34], axis=1))))
+print('Internal dispersion, based on scatter between orders (m/s): ')
+print(np.std(velocity_err[:, 21:35], axis=1)/np.sqrt(14))
+
 
