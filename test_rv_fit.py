@@ -7,7 +7,7 @@ save_dir = './' #'/home/ehold13/veloce_scripts/obs_corrected_fits/'
     #s,w,se = create_observation_fits('11dec30096o.fits',file_name,'/home/ehold13/veloce_scripts/obs_corrected_fits/')
 #s,w,se = create_observation_fits('11dec30096o.fits','14dec30068o.fits','/home/ehold13/veloce_scripts/obs_corrected_fits/')
 fitting_files = ['11dec30096','11dec30097','12dec30132','12dec30133','12dec30134', '13dec30076','13dec30077','14dec30066','14dec30067','14dec30068','15dec30097', '15dec30098', '15dec30099']
-fitting_files = fitting_files[:1] #!!!
+#fitting_files = fitting_files[:1] #!!!
 velocity_err = np.zeros([len(fitting_files),36])
 file_ind = 0
 for fit in fitting_files:
@@ -38,15 +38,21 @@ for fit in fitting_files:
         
     #FIXME: There should be a better way than this of dealing with "bad" orders.
     orders= list(range(2,15))
-    orders.extend(list(range(17,40)))
+    orders.extend(list(range(17,39))) #!!! Was 40
     order_ind = 0
-    orders = [25] #!!! Temp
+    #orders = [36] #!!! Temp
     for i in orders:
         #FIXME: The template can not have NaNs in it! Just make it smooth over gaps.
         if np.sum(np.isnan(Tau_Ceti_Template[0].data[:,i]) > 0):
             raise UserWarning("Can not have NaNs in template!")
         temp_wave = Tau_Ceti_Template[1].data[:,i]
         temp_spec = Tau_Ceti_Template[0].data[:,i] 
+        #FIXME: The template shouldn't have to be convolved after the fact.
+        gg = np.exp(-np.linspace(-2,2,15)**2/2) #Must have an odd length.
+        gg /= np.sum(gg)
+        temp_spec = np.convolve(temp_spec,gg, mode='same')
+        #FIXME end...        
+        
         temp_func = InterpolatedUnivariateSpline(temp_wave, temp_spec, k=1) 
         temp_lwave = np.log(temp_wave)
         temp_dlwave = temp_lwave[1]-temp_lwave[0]
@@ -54,10 +60,12 @@ for fit in fitting_files:
         rv_errs = []
         mses = []
         for j in range(19):
-            spect_mask = np.isnan(spect[601:3350,i,j])
-            spect_wave = wavelength[601:3350,i,j][~spect_mask].astype(np.float64) #Converting to float64 is essential!
-            spect_spec = spect[601:3350,i,j][~spect_mask]
-            spect_err_ = np.sqrt(spect_err[601:3350,i,j][~spect_mask]) #??? It seems that the errors are too small.
+            spect_mask = np.isnan(spect[830:3200,i,j])
+            spect_wave = wavelength[830:3200,i,j][~spect_mask].astype(np.float64) #Converting to float64 is essential!
+            spect_spec = spect[830:3200,i,j][~spect_mask]
+            spect_err_ = np.sqrt(np.abs(spect_err[830:3200,i,j][~spect_mask])) #??? It seems that the errors are too small.
+            if np.sum(np.isnan(spect_err_))>0:
+                import pdb; pdb.set_trace()
             spect_lwave = np.log(spect_wave)
             
             # changing intial conditions changes answer and MSE 
@@ -67,7 +75,7 @@ for fit in fitting_files:
             #a = optimise.leastsq(rv_fitting_eqn,x0 = [-25,1e-3,1e-3,1e-3], args=(spect_lwave, spect_spec, spect_err_, temp_spec, temp_lwave[0], temp_dlwave), \
             #   epsfcn=1e-4, full_output = True, ftol=1e-7, gtol=1e-7)     
             a = optimise.least_squares(rv_fitting_eqn,x0 = [-26,0,0,0], args=(spect_lwave, spect_spec, spect_err_, temp_spec, temp_lwave[0], temp_dlwave), \
-                jac=rv_jac, method='lm', ftol=1e-10, xtol=1e-10) 
+                jac=rv_jac, method='lm') 
 
             print(a.x)
             print(a.status)
@@ -87,11 +95,11 @@ for fit in fitting_files:
                #Multiply the error but the square root of chi-squared. !!! Why is chi-squared so high? !!!
                rv_errs.append(np.sqrt(mse)*np.sqrt(cov[0,0]))
                #Now make a plot to see if the minimum is unique!
-               if True:
+               if False:
                    rv_test = np.linspace(-24.1,-23.9,201)
                    this_chi2 = test_rv_chi2(a.x, rv_test, spect_lwave, spect_spec, spect_err_, temp_spec, temp_lwave[0], temp_dlwave)
                    plt.figure(j)
-                   plt.clf()
+                   #plt.clf()
                    plt.plot(rv_test, this_chi2)
 
         rvs = np.array(rvs)
@@ -113,8 +121,8 @@ for fit in fitting_files:
             plt.ylabel('Velocity (km/s)')
             plt.show()
         
-        
-        BC_t, BC_star = barycentric_correction('11dec30096o.fits',obs_file_path[48:58]+'o.fits','191211','191211')
+        obs_day = obs_file_path[48:50]
+        BC_t, BC_star = barycentric_correction('11dec30096o.fits',obs_file_path[48:58]+'o.fits','191211','1912'+obs_day)
         
         print('True Velocity ', BC_star*c.c.to(u.km/u.s).value)
         print('Velocity Difference (m/s) ', wtmn_rv*1000 - BC_star*c.c.to(u.m/u.s).value)
