@@ -440,11 +440,12 @@ def telluric_correction(obs_night, time, date, scrunch = True, B_plus = None, ai
         print('Working on telluric masking on order: ' + str(order))
         if len(B_plus_saved)==40:
             B_plus = B_plus_saved[order]
+        else:
+            B_plus = np.load('/priv/avatar/ehold13/B_plus_num_points_22600_order'+str(order)+'.npy', allow_pickle = True)
         telluric_spec[:,order], Bplus = telluric_masking(wavelength[:,order], telluric_spec[:,order], order, Bplus = B_plus)
-                
+        #np.save('/priv/avatar/ehold13/B_plus_num_points_22600_order'+str(order)+'.npy', np.array(Bplus),allow_pickle = True)            
         if len(B_plus_saved) != 40:
             B_plus_saved.append(Bplus)
-    np.save('/home/ehold13/veloce_scripts/B_plus_num_points_22600.npy', np.array(B_plus_saved),allow_pickle = True)    
         
     # if a value is equal to 0 (as it didn't have a high enough signal to noise) then set it to be NaN
     for order in range(40):
@@ -455,7 +456,7 @@ def telluric_correction(obs_night, time, date, scrunch = True, B_plus = None, ai
             if (telluric_spec[wave,order]==0) | (telluric_spec[wave,order] < 3*error_spec[wave,order]):
                 telluric_spec[wave,order] = np.nan
                 error_spec[wave,order] = np.nan
-                wavelength[wave,order] = np.nan   
+                #wavelength[wave,order] = np.nan   
     
     # apply an airmass correction
     if airmass_corr:          
@@ -680,8 +681,8 @@ def generate_template(file_paths, dates, save_spect = False, save_name = ''):
         for wave in range(np.shape(diff)[0]):
             if (template[wave,order]==0)| (template[wave,order]<3*error[wave,order]):
                 template[wave,order] = np.nan
-                wavelength[wave,order] = np.nan
-  
+                #wavelength[wave,order] = np.nan
+    
     # return the template spectrum with weighted average
     if save_spect:
         primary_hdu = pyfits.PrimaryHDU(template)
@@ -691,15 +692,3 @@ def generate_template(file_paths, dates, save_spect = False, save_name = ''):
         hdul.writeto('/home/ehold13/veloce_scripts/'+save_name+'.fits') 
     return wavelength_standard, template, error
     
-#if __name__=="__main__":
-#    temp_files =     ['11dec30096o.fits', '11dec30097o.fits', '12dec30132o.fits', '12dec30133o.fits', '12dec30134o.fits', '13dec30076o.fits', '13dec30077o.fits', '14dec30066o.fits', '14dec30067o.fits', '14dec30068o.fits', '15dec30097o.fits', '15dec30098o.fits', '15dec30099o.fits']
-#    temp_dates = ['191211','191211','191212','191212','191212','191213','191213','191214','191214','191214','191215','191215','191215']
-    #temp_files = ['14dec30066o.fits', '14dec30067o.fits', '14dec30068o.fits']
-#    w,s,e = generate_template(temp_files[0:2], temp_dates[0:2])
-#    primary_hdu = pyfits.PrimaryHDU(s)
-#    image_hdu = pyfits.ImageHDU(w)
-#    image_hdu2 = pyfits.ImageHDU(e)
-#    hdul = pyfits.HDUList([primary_hdu, image_hdu, image_hdu2])
-#    hdul.writeto('/home/ehold13/veloce_scripts/Tau_Ceti_Template_11dec2019_telluric_patched.fits')    
-
-

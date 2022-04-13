@@ -4,7 +4,7 @@ import astropy.io.fits as pyfits
 from astropy.table import Table
 from .main_funcs import log_scale_interpolation
 from .main_funcs import telluric_correction
-
+from . import get_observations
 from scipy.interpolate import InterpolatedUnivariateSpline
 import scipy.optimize as optimise
 import astropy.constants as c
@@ -31,7 +31,7 @@ def create_observation_fits(standard, obs_fits, date, save_dir, combine_fibres =
   
     if telluric_info_a[1]!= telluric_info_b[1]:
         telluric_spec = (telluric_spec_a*(target_info_b[3] - telluric_info_b[3]) + telluric_spec_b*(target_info_a[3] - telluric_info_a[3]))/(telluric_info_a[3]-telluric_info_b[3])
-        telluric_err_spec = (((telluric_spec_a*(target_info_b[3] - telluric_info_b[3]))/(telluric_info_a[3]-telluric_info_b[3]))**2 + ((telluric_spec_b*(target_info_a[3] - telluric_info_a[3]))/(telluric_info_a[3]-telluric_info_b[3]))**2)**0.5
+        telluric_err_spec = (((telluric_err_spec_a*(target_info_b[3] - telluric_info_b[3]))/(telluric_info_a[3]-telluric_info_b[3]))**2 + ((telluric_err_spec_b*(target_info_a[3] - telluric_info_a[3]))/(telluric_info_a[3]-telluric_info_b[3]))**2)**0.5
         
     else:
         telluric_spec = telluric_spec_a
@@ -39,10 +39,13 @@ def create_observation_fits(standard, obs_fits, date, save_dir, combine_fibres =
     
     telluric = np.zeros([np.shape(all_log_w)[0],np.shape(all_log_w)[1]])
     telluric_error = np.zeros([np.shape(all_log_w)[0],np.shape(all_log_w)[1]])
+         
     for fibre in range(19):
-        for order in range(40):        
-            telluric_interpolation_func = InterpolatedUnivariateSpline(wave_tell_a[:,order], telluric_spec[:,order],k=5)
-            telluric_err_interpolation_func = InterpolatedUnivariateSpline(wave_tell_a[:,order], telluric_err_spec[:,order],k=5)
+        for order in range(40):
+                    
+            telluric_interpolation_func = InterpolatedUnivariateSpline(wave_tell_a[:,order], telluric_spec[:,order],k=1)
+            telluric_err_interpolation_func = InterpolatedUnivariateSpline(wave_tell_a[:,order], telluric_err_spec[:,order],k=1)
+           
             telluric[:,order] = telluric_interpolation_func(all_log_w[:,order,fibre])
             telluric_error[:,order] = telluric_err_interpolation_func(all_log_w[:,order,fibre])
             for wave in range(np.shape(all_log_w)[0]):

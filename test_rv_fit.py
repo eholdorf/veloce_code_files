@@ -1,17 +1,32 @@
 from rv.least_squares_rv import *
 from rv.main_funcs import barycentric_correction
+from astropy.table import Table
 
 save_dir = './' #'/home/ehold13/veloce_scripts/obs_corrected_fits/'
+data_logs = Table.read('/home/ehold13/veloce_scripts/veloce_observations.fits')
+Tau_Ceti = data_logs[data_logs['star_names']=='10700'][0]
+
+files = [Tau_Ceti[7][i].decode('utf-8') for i in range(7)]
+file_dates = [Tau_Ceti[8][i].decode('utf-8') for i in range(7)]
+
 #files = ['11dec30097o.fits', '12dec30132o.fits', '12dec30133o.fits', '12dec30134o.fits', '13dec30076o.fits', '13dec30077o.fits', '14dec30066o.fits', '14dec30067o.fits', '15dec30097o.fits', '15dec30098o.fits', '15dec30099o.fits']
-#for file_name in files:
-    #s,w,se = create_observation_fits('11dec30096o.fits',file_name,'/home/ehold13/veloce_scripts/obs_corrected_fits/')
-#s,w,se = create_observation_fits('11dec30096o.fits','14dec30068o.fits','/home/ehold13/veloce_scripts/obs_corrected_fits/')
+#for i,file_name in enumerate(files):
+    #s,w,se = create_observation_fits('11dec30096o.fits',file_name,file_dates[i],'/home/ehold13/veloce_scripts/obs_corrected_fits/')
+
 fitting_files = ['11dec30096','11dec30097','12dec30132','12dec30133','12dec30134', '13dec30076','13dec30077','14dec30066','14dec30067','14dec30068','15dec30097', '15dec30098', '15dec30099']
+
+# do some testing on files which weren't used to make the template
+fitting_files = [f[0:10] for f in files]
+
 #fitting_files = fitting_files[:1] #!!!
 velocity_err = np.zeros([len(fitting_files),36])
 file_ind = 0
+Tau_Ceti_Template = pyfits.open('/home/ehold13/veloce_scripts/Tau_Ceti_Template_dec2019_telluric_patched.fits')
+
+#plt.figure()
+#plt.plot(Tau_Ceti_Template[1].data,Tau_Ceti_Template[0].data)
+#plt.show()
 for fit in fitting_files:
-    Tau_Ceti_Template = pyfits.open('/home/ehold13/veloce_scripts/Tau_Ceti_Template_11dec2019_telluric_patched.fits')
     
     obs_file_path = '/home/ehold13/veloce_scripts/obs_corrected_fits/'+fit+'_corrected.fits'
     obs = pyfits.open(obs_file_path)
@@ -19,18 +34,18 @@ for fit in fitting_files:
     spect = obs[0].data
     wavelength = obs[1].data
     spect_err = obs[2].data
-    plt.plot(Tau_Ceti_Template[1].data[:,:], Tau_Ceti_Template[0].data[:,:])
-    plt.show()
         
     if False:
-        order = 13
-          
-        temp_func = InterpolatedUnivariateSpline(Tau_Ceti_Template[1].data[:,order], Tau_Ceti_Template[0].data[:,order], k=1)
-        sp = rv_fitting_eqn_old([-24,1e-3,1e-1,1e-1],wavelength[401:3601,order,0],spect[401:3601,order,0],spect_err[401:3601,order,0],temp_func, return_spec = True)
+        order = 36
+        mask = np.isnan(Tau_Ceti_Template[0].data[:,order])  
+        temp_func = InterpolatedUnivariateSpline(Tau_Ceti_Template[1].data[:,order][~mask], Tau_Ceti_Template[0].data[:,order][~mask], k=5)
+        
+        obs_mask = np.isnan(spect[401:3601,order,0])
+        sp = rv_fitting_eqn_old([-24,1e-3,1e-1,1e-1],wavelength[401:3601,order,0][~obs_mask],spect[401:3601,order,0][~obs_mask],spect_err[401:3601,order,0][~obs_mask],temp_func, return_spec = True)
 
         plt.figure()
-        plt.plot(wavelength[401:3601,order,0],spect[401:3601,order,0], label = 'Original Spectrum')
-        plt.plot(wavelength[401:3601,order,0],sp, label = 'Fitted Spectrum')
+        plt.plot(wavelength[401:3601,order,0][~obs_mask],spect[401:3601,order,0][~obs_mask], label = 'Original Spectrum')
+        plt.plot(wavelength[401:3601,order,0][~obs_mask],sp, label = 'Fitted Spectrum')
         plt.xlabel('Wavelength ($\AA$)')
         plt.ylabel('Flux')
         plt.title(fit)
@@ -38,20 +53,24 @@ for fit in fitting_files:
         plt.show()
         
     #FIXME: There should be a better way than this of dealing with "bad" orders.
-    orders= list(range(2,15))
-    orders.extend(list(range(17,39))) #!!! Was 40
+    orders= list(range(3,5))
+    orders.extend(list(range(6,10)))
+    orders.extend(list(range(11,15))) 
+    orders.extend(list(range(17,39)))
     order_ind = 0
-    #orders = [36] #!!! Temp
+    orders = [6,7,13,14,17,25,26,27,28,30,31,33,34,35,36,37] #!!! Temp, orders which have low telluric contamination based on Bplus matrix size
     for i in orders:
         #FIXME: The template can not have NaNs in it! Just make it smooth over gaps.
-        if np.sum(np.isnan(Tau_Ceti_Template[0].data[:,i]) > 0):
-            raise UserWarning("Can not have NaNs in template!")
-        temp_wave = Tau_Ceti_Template[1].data[:,i]
-        temp_spec = Tau_Ceti_Template[0].data[:,i] 
+        #if np.sum(np.isnan(Tau_Ceti_Template[0].data[:,i]) > 0):
+        #    raise UserWarning("Can not have NaNs in template!")
+        mask = np.isnan(Tau_Ceti_Template[0].data[:,i])
+        temp_wave = Tau_Ceti_Template[1].data[:,i][~mask]
+        temp_spec = Tau_Ceti_Template[0].data[:,i][~mask]
+         
         #FIXME: The template shouldn't have to be convolved after the fact.
-        gg = np.exp(-np.linspace(-2,2,15)**2/2) #Must have an odd length.
-        gg /= np.sum(gg)
-        temp_spec = np.convolve(temp_spec,gg, mode='same')
+        #gg = np.exp(-np.linspace(-2,2,15)**2/2) #Must have an odd length.
+        #gg /= np.sum(gg)
+        #temp_spec = np.convolve(temp_spec,gg, mode='same')
         #FIXME end...        
         
         temp_func = InterpolatedUnivariateSpline(temp_wave, temp_spec, k=1) 
@@ -134,12 +153,12 @@ for fit in fitting_files:
     file_ind += 1
 
 if False:
-    for order in range(36):        
+    for order in range(len(orders)):        
         plt.figure()   
         plt.plot(velocity_err[:,order])
         plt.show()
-print('Velocity uncertainty, orders 89 to 99 (m/s): {:.1f}'.format(np.std(np.mean(velocity_err[:, 24:34], axis=1))))
+print('Velocity uncertainty, orders 89 to 99 (m/s): {:.1f}'.format(np.std(np.mean(velocity_err[:, :], axis=1)))) # was 24:34
 print('Internal dispersion, based on scatter between orders (m/s): ')
-print(np.std(velocity_err[:, 21:35], axis=1)/np.sqrt(14))
+print(np.std(velocity_err[:, :], axis=1)/np.sqrt(np.shape(velocity_err)[1])) # was np.std(velocity_err[:, 21:35], axis=1)/np.sqrt(14)
 
 
