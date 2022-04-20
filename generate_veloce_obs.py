@@ -7,7 +7,7 @@ from astropy.coordinates import SkyCoord
 #from astroquery.gaia import Gaia
 import astropy.units as u
 import re
-import get_observations as g_o
+import rv.get_observations as g_o
 
 
 objfns = glob.glob('oversc_logs/[12]?????/OBJECT.lis')
@@ -58,11 +58,13 @@ for fn in objfns:
                     star_names.append(name)
                     fits.append([args[0]])
                     jds.append([float(args[1])])
+                    dirs.append([dirname])
                 # if we have found the star, then add the fits file and jd to the list for that star
                 if found_star:
                     index = star_names.index(name)
                     fits[index].append(args[0])
                     jds[index].append(float(args[1]))
+                    dirs[index].append(dirname)
                         
 # number of observations for each star                       
 num_obs = [len(fits[i]) for i in range(len(fits))]
@@ -72,12 +74,19 @@ for fit in fits:
         fit.append('')
         diff -= 1
         
+for d in dirs:
+    diff = abs(max(num_obs) - len(d))
+    while diff > 0:
+        d.append('')
+        diff -= 1
+        
 for jd in jds:
     diff = abs(max(num_obs) - len(jd))
     while diff > 0:
         jd.append(np.NaN)
         diff -= 1
-
+#print(dirs)
+#print(np.shape(dirs))
 obs_type = []
 while len(obs_type)<len(fits):
     obs_type.append('TARGET')
@@ -136,7 +145,8 @@ for star in ROTATOR:
         if star in name:
             star = name
     obs_type[star_names.index(star)] = 'ROTATOR'  
-            
+
+#dirs = np.array(dirs)            
 uniq_radec = np.array(uniq_radec)
 star_names = np.array(star_names)
 star_ix = np.array(star_ix)
@@ -243,8 +253,8 @@ for star in fits:
     print(count)
     count+=1
 print(directories)
-#t = Table([star_names, uniq_radec,obs_type,num_obs,Teff,K_pl, jds, fits,directories], names = ('star_names','ra_dec','obs_type','number_obs','T_eff','K_pl','julian_obs_dates', 'fits_names','directory'))
-#t.write('veloce_observations.fits', format = 'fits')
+t = Table([star_names, uniq_radec,obs_type,num_obs,Teff,K_pl, jds, fits,dirs], names = ('star_names','ra_dec','obs_type','number_obs','T_eff','K_pl','julian_obs_dates', 'fits_names','directory'))
+t.write('veloce_observations.fits', format = 'fits')
 
 
 
