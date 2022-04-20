@@ -171,6 +171,6 @@ simple_std = np.std(velocity_err[:, 21:35], axis=1)/np.sqrt(14)
 print(simple_std)
 simple_means = np.mean(velocity_err[:, 24:34], axis=1)
 for i in range(len(simple_means)):
-    print("{:.6f},{.1f},{.1f}".format(mjds[i], simple_means[i], simple_std[i]))
+    print("{:.6f},{:.1f},{:.1f}".format(mjds[i], simple_means[i], simple_std[i]))
 
 
