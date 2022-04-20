@@ -18,17 +18,30 @@ fitting_files = ['11dec30096','11dec30097','12dec30132','12dec30133','12dec30134
 
 # do some testing on files which weren't used to make the template
 fitting_files = [f[0:10] for f in files]
-
 #fitting_files = fitting_files[:1] #!!!
-velocity_err = np.zeros([len(fitting_files),36])
-file_ind = 0
+
+        
+#FIXME: There should be a better way than this of dealing with "bad" orders.
+orders= list(range(11,15))
+orders.extend(list(range(17,39))) #!!! Was 40
+#To do all orders... (note issues with NaNs)
+#orders= list(range(3,5))
+#orders.extend(list(range(6,10)))
+#orders.extend(list(range(11,15))) 
+#orders.extend(list(range(17,39)))
+
+orders = [6,7,13,14,17,25,26,27,28,30,31,33,34,35,36,37] #!!! Temp, orders which have low telluric contamination based on Bplus matrix size
+
+
+velocity_err = np.zeros([len(fitting_files),len(orders)])
 Tau_Ceti_Template = pyfits.open('/home/ehold13/veloce_scripts/Tau_Ceti_Template_dec2019_telluric_patched_3.fits')
 
 #plt.figure()
 #plt.plot(Tau_Ceti_Template[1].data,Tau_Ceti_Template[0].data)
 #plt.show()
+
 mjds = []
-for fit in fitting_files:
+for file_ind, fit in enumerate(fitting_files):
     
     obs_file_path = '/home/ehold13/veloce_scripts/obs_corrected_fits/'+fit+'_corrected.fits'
     obs = pyfits.open(obs_file_path)
@@ -56,18 +69,7 @@ for fit in fitting_files:
         plt.title(fit)
         plt.legend(loc='best')
         plt.show()
-        
-    #FIXME: There should be a better way than this of dealing with "bad" orders.
-    orders= list(range(11,15))
-    orders.extend(list(range(17,39))) #!!! Was 40
-    #To do all orders... (note issues with NaNs)
-    #orders= list(range(3,5))
-    #orders.extend(list(range(6,10)))
-    #orders.extend(list(range(11,15))) 
-    #orders.extend(list(range(17,39)))
-    order_ind = 0
-    orders = [6,7,13,14,17,25,26,27,28,30,31,33,34,35,36,37] #!!! Temp, orders which have low telluric contamination based on Bplus matrix size
-    for i in orders:
+    for order_ind, i in enumerate(orders):
         #FIXME: The template can not have NaNs in it! Just make it smooth over gaps.
         if np.sum(np.isnan(Tau_Ceti_Template[0].data[830:3200,i]) > 0):
             raise UserWarning("Can not have NaNs in template!")
@@ -157,19 +159,17 @@ for fit in fitting_files:
 
         print('Percentage Error ', 100*(wtmn_rv - BC_star*c.c.to(u.km/u.s).value)/(BC_star*c.c.to(u.km/u.s).value))
         velocity_err[file_ind, order_ind] = (wtmn_rv*1000 - BC_star*c.c.to(u.m/u.s).value)
-        order_ind += 1
-    file_ind += 1
 
 if False:
     for order in range(len(orders)):        
         plt.figure()   
         plt.plot(velocity_err[:,order])
         plt.show()
-print('Velocity uncertainty, orders 89 to 99 (m/s): {:.1f}'.format(np.std(np.mean(velocity_err[:, :], axis=1)))) # was 24:34
+print('Velocity uncertainty, list of orders (m/s): {:.1f}'.format(np.std(np.mean(velocity_err, axis=1)))) # was 24:34
 print('Internal dispersion, based on scatter between orders (m/s): ')
-simple_std = np.std(velocity_err[:, 21:35], axis=1)/np.sqrt(14)
+simple_std = np.std(velocity_err, axis=1)/np.sqrt(len(orders))
 print(simple_std)
-simple_means = np.mean(velocity_err[:, 24:34], axis=1)
+simple_means = np.mean(velocity_err, axis=1)
 for i in range(len(simple_means)):
     print("{:.6f},{:.1f},{:.1f}".format(mjds[i], simple_means[i], simple_std[i]))
 
