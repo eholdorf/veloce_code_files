@@ -7,14 +7,19 @@ save_dir = './' #'/home/ehold13/veloce_scripts/obs_corrected_fits/'
     #s,w,se = create_observation_fits('11dec30096o.fits',file_name,'/home/ehold13/veloce_scripts/obs_corrected_fits/')
 #s,w,se = create_observation_fits('11dec30096o.fits','14dec30068o.fits','/home/ehold13/veloce_scripts/obs_corrected_fits/')
 fitting_files = ['11dec30096','11dec30097','12dec30132','12dec30133','12dec30134', '13dec30076','13dec30077','14dec30066','14dec30067','14dec30068','15dec30097', '15dec30098', '15dec30099']
+dirs = ['']
 #fitting_files = fitting_files[:1] #!!!
 velocity_err = np.zeros([len(fitting_files),36])
 file_ind = 0
+mjds = []
 for fit in fitting_files:
-    Tau_Ceti_Template = pyfits.open('/home/ehold13/veloce_scripts/Tau_Ceti_Template_14dec2019_telluric_patched.fits')
+    Tau_Ceti_Template = pyfits.open('/home/ehold13/veloce_scripts/Tau_Ceti_Template_11dec2019_telluric_patched.fits') #was 14dec
     
     obs_file_path = '/home/ehold13/veloce_scripts/obs_corrected_fits/'+fit+'_corrected.fits'
     obs = pyfits.open(obs_file_path)
+    procfile = '/priv/avatar/velocedata/Data/spec_211202/1912' + fit[:2] + '/' + fit + 'oi_extf.fits'
+    hh = pyfits.getheader(procfile)
+    mjds.append(hh['UTMJD'])
 
     spect = obs[0].data
     wavelength = obs[1].data
@@ -37,13 +42,13 @@ for fit in fitting_files:
         plt.show()
         
     #FIXME: There should be a better way than this of dealing with "bad" orders.
-    orders= list(range(2,15))
+    orders= list(range(11,15))
     orders.extend(list(range(17,39))) #!!! Was 40
     order_ind = 0
     #orders = [36] #!!! Temp
     for i in orders:
         #FIXME: The template can not have NaNs in it! Just make it smooth over gaps.
-        if np.sum(np.isnan(Tau_Ceti_Template[0].data[:,i]) > 0):
+        if np.sum(np.isnan(Tau_Ceti_Template[0].data[830:3200,i]) > 0):
             raise UserWarning("Can not have NaNs in template!")
         temp_wave = Tau_Ceti_Template[1].data[:,i]
         temp_spec = Tau_Ceti_Template[0].data[:,i] 
@@ -139,6 +144,10 @@ if False:
         plt.show()
 print('Velocity uncertainty, orders 89 to 99 (m/s): {:.1f}'.format(np.std(np.mean(velocity_err[:, 24:34], axis=1))))
 print('Internal dispersion, based on scatter between orders (m/s): ')
-print(np.std(velocity_err[:, 21:35], axis=1)/np.sqrt(14))
+simple_std = np.std(velocity_err[:, 21:35], axis=1)/np.sqrt(14))
+print(simple_std)
+simple_means = np.mean(velocity_err[:, 24:34], axis=1)
+for i in range(len(simple_means)):
+    print("{:.6f},{.1f},{.1f}".format(mjds[i], simple_means[i], simple_std[i]))
 
 
