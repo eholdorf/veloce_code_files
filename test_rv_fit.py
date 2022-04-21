@@ -20,26 +20,41 @@ for i,file_name in enumerate(files):
 
 fitting_files = ['11dec30096','11dec30097','12dec30132','12dec30133','12dec30134', '13dec30076','13dec30077','14dec30066','14dec30067','14dec30068','15dec30097', '15dec30098', '15dec30099']
 
+
 # do some testing on files which weren't used to make the template
-fitting_files.extend([f[0:10] for f in files])
-
-
+fitting_files = [f[0:10] for f in files]
 #fitting_files = fitting_files[:1] #!!!
-velocity_err = np.zeros([len(fitting_files),16])
+
+        
+#FIXME: There should be a better way than this of dealing with "bad" orders.
+orders= list(range(11,15))
+orders.extend(list(range(17,39))) #!!! Was 40
+#To do all orders... (note issues with NaNs)
+#orders= list(range(3,5))
+#orders.extend(list(range(6,10)))
+#orders.extend(list(range(11,15))) 
+#orders.extend(list(range(17,39)))
+
+orders = [6,7,13,14,17,25,26,27,28,30,31,33,34,35,36,37] #!!! Temp, orders which have low telluric contamination based on Bplus matrix size
+
+
+velocity_err = np.zeros([len(fitting_files),len(orders)])
 velocity = np.zeros([len(fitting_files),16])
 velocity_uncertainty = np.zeros([len(fitting_files),16])
 
-
-file_ind = 0
 Tau_Ceti_Template = pyfits.open('/home/ehold13/veloce_scripts/Tau_Ceti_Template_dec2019_telluric_patched_3.fits')
 
 #plt.figure()
 #plt.plot(Tau_Ceti_Template[1].data,Tau_Ceti_Template[0].data)
 #plt.show()
-for fit in fitting_files:
+
+mjds = []
+for file_ind, fit in enumerate(fitting_files):
     obs_file_path = '/priv/avatar/ehold13/obs_corrected/'+fit+'_corrected.fits'
-    
     obs = pyfits.open(obs_file_path)
+    procfile = '/priv/avatar/velocedata/Data/spec_211202/1912' + fit[:2] + '/' + fit + 'oi_extf.fits'
+    hh = pyfits.getheader(procfile)
+    mjds.append(hh['UTMJD'])
 
     spect = obs[0].data
     wavelength = obs[1].data
@@ -62,23 +77,19 @@ for fit in fitting_files:
         plt.legend(loc='best')
         #plt.ylim(0,1.2)
         plt.show()
-        
-    #FIXME: There should be a better way than this of dealing with "bad" orders.
-    orders= list(range(3,5))
-    orders.extend(list(range(6,10)))
-    orders.extend(list(range(11,15))) 
-    orders.extend(list(range(17,39)))
-    order_ind = 0
-    orders = [6,7,13,14,17,25,26,27,28,30,31,33,34,35,36,37] #!!! Temp, orders which have low telluric contamination based on Bplus matrix size
-    for i in orders:
+    for order_ind, i in enumerate(orders):
         #FIXME: The template can not have NaNs in it! Just make it smooth over gaps.
-        #if np.sum(np.isnan(Tau_Ceti_Template[0].data[:,i]) > 0):
-        #    raise UserWarning("Can not have NaNs in template!")
-        mask = np.isnan(Tau_Ceti_Template[0].data[:,i])
-        temp_wave = Tau_Ceti_Template[1].data[:,i][~mask]
-        temp_spec = Tau_Ceti_Template[0].data[:,i][~mask]
-         
-        #FIXME: The template shouldn't have to be convolved after the fact.
+
+        if np.sum(np.isnan(Tau_Ceti_Template[0].data[830:3200,i]) > 0):
+            raise UserWarning("Can not have NaNs in template!")
+        temp_wave = Tau_Ceti_Template[1].data[:,i]
+        temp_spec = Tau_Ceti_Template[0].data[:,i] 
+        
+        #mask = np.isnan(Tau_Ceti_Template[0].data[:,i])
+        #temp_wave = Tau_Ceti_Template[1].data[:,i][~mask]
+        #temp_spec = Tau_Ceti_Template[0].data[:,i][~mask]
+        #FIXME: The template shouldn't have to be convolved after the fact. There are some high frequency parts of the 
+        #spectrum - where do they come from?
         gg = np.exp(-np.linspace(-2,2,15)**2/2) #Must have an odd length.
         gg /= np.sum(gg)
         temp_spec = np.convolve(temp_spec,gg, mode='same')
@@ -170,17 +181,20 @@ for fit in fitting_files:
 
         print('Percentage Error ', 100*(wtmn_rv - BC_star*c.c.to(u.km/u.s).value)/(BC_star*c.c.to(u.km/u.s).value))
         velocity_err[file_ind, order_ind] = (wtmn_rv*1000 - BC_star*c.c.to(u.m/u.s).value)
-        order_ind += 1
-    file_ind += 1
 
 if False:
     for order in range(len(orders)):        
         plt.figure()   
         plt.plot(velocity_err[:,order])
         plt.show()
-print('Velocity uncertainty, orders 89 to 99 (m/s): {:.1f}'.format(np.std(np.mean(velocity_err[0:15, :], axis=1)))) # was 24:34
+
+print('Velocity uncertainty, list of orders (m/s): {:.1f}'.format(np.std(np.mean(velocity_err, axis=1)))) # was 24:34
 print('Internal dispersion, based on scatter between orders (m/s): ')
-print(np.std(velocity_err[:, :], axis=1)/np.sqrt(np.shape(velocity_err)[1])) # was np.std(velocity_err[:, 21:35], axis=1)/np.sqrt(14)
+simple_std = np.std(velocity_err, axis=1)/np.sqrt(len(orders))
+print(simple_std)
+simple_means = np.mean(velocity_err, axis=1)
+for i in range(len(simple_means)):
+    print("{:.6f},{:.1f},{:.1f}".format(mjds[i], simple_means[i], simple_std[i]))
 
 #print(velocity_err)
 if False:
