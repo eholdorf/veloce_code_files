@@ -4,7 +4,7 @@ import astropy.io.fits as pyfits
 from astropy.table import Table
 import matplotlib.pyplot as plt
 from astropy.coordinates import SkyCoord
-#from astroquery.gaia import Gaia
+from os.path import exists
 import astropy.units as u
 import re
 import rv.get_observations as g_o
@@ -34,9 +34,10 @@ for fn in objfns:
             #We're not using ''.split() because the name can have spaces in it!
             args = line.split()
             name = ' '.join(args[4:])
-            names += [name]
-            radec = [float(args[2]), float(args[3])]
-            radecs += [radec]
+            if exists('/priv/avatar/velocedata/Data/spec_211202/'+dirname+'/'+args[0][0:10]+'oi_extf.fits'):
+                names += [name]
+                radec = [float(args[2]), float(args[3])]
+                radecs += [radec]
             
             #Firstly, check for mis-labelled flat fields.
             if name[:4] == 'Flat':
@@ -53,14 +54,16 @@ for fn in objfns:
                         break
 
                 #If we haven't found the star yet, add a new one!
-                if not found_star:
+                if not found_star and exists('/priv/avatar/velocedata/Data/spec_211202/'+dirname+'/'+args[0][0:10]+'oi_extf.fits'):
+                    print('new star')
                     uniq_radec.append(radec)
                     star_names.append(name)
                     fits.append([args[0]])
                     jds.append([float(args[1])])
                     dirs.append([dirname])
-                # if we have found the star, then add the fits file and jd to the list for that star
-                if found_star:
+                # if we have found the star, then add the fits file and jd to the list for that star also check to see if the file exists
+                if found_star and exists('/priv/avatar/velocedata/Data/spec_211202/'+dirname+'/'+args[0][0:10]+'oi_extf.fits'):
+                    print('old star')
                     index = star_names.index(name)
                     fits[index].append(args[0])
                     jds[index].append(float(args[1]))
@@ -216,45 +219,48 @@ for i in toi_index:
     toi_size.append(num_obs[i])
     
 # get colour out for plot
-bp_rps = []
+if False:
+    bp_rps = []
 
-bp_rp = np.array([float(toi[2]) for toi in toi_info_])
-mask = bp_rp>0.6
-bp_rp = bp_rp[mask]
-toi_ra = np.array(toi_ra)[mask]
-toi_dec = np.array(toi_dec)[mask]
-toi_size = np.array(toi_size)[mask]
+    bp_rp = np.array([float(toi[2]) for toi in toi_info_])
+    mask = bp_rp>0.6
+    bp_rp = bp_rp[mask]
+    toi_ra = np.array(toi_ra)[mask]
+    toi_dec = np.array(toi_dec)[mask]
+    toi_size = np.array(toi_size)[mask]
 
-plt.figure()
-plt.rcParams.update({'font.size': 15})
-plt.scatter(toi_ra[6],toi_dec[6], s=200, c= bp_rp[6],cmap = 'Greys', label = '200')
-plt.scatter(toi_ra[50],toi_dec[50], s=toi_size[50], c= bp_rp[50],cmap = 'Greys', label = str(toi_size[50]))
-plt.scatter(toi_ra[51],toi_dec[51], s=toi_size[51], c= bp_rp[51],cmap = 'Greys', label = str(toi_size[51]))
-plt.scatter(toi_ra[10],toi_dec[10], s=toi_size[10], c= bp_rp[10],cmap = 'Greys',label = str(toi_size[10]))
-#plt.scatter(toi_ra[-1],toi_dec[-1], s=toi_size[-1], c= bp_rp[-1],cmap = 'Greys',label = str(toi_size[-1]))
-plt.scatter(toi_ra,toi_dec,s=toi_size, c = bp_rp,cmap = 'RdYlBu_r')
-plt.xlabel('RA (deg)')
-plt.ylabel('dec (deg)')
-plt.colorbar(label =r'$B_p - R_p$')
-plt.legend(loc = 'best')
-plt.show()
+    plt.figure()
+    plt.rcParams.update({'font.size': 15})
+    plt.scatter(toi_ra[6],toi_dec[6], s=200, c= bp_rp[6],cmap = 'Greys', label = '200')
+    plt.scatter(toi_ra[50],toi_dec[50], s=toi_size[50], c= bp_rp[50],cmap = 'Greys', label = str(toi_size[50]))
+    plt.scatter(toi_ra[51],toi_dec[51], s=toi_size[51], c= bp_rp[51],cmap = 'Greys', label = str(toi_size[51]))
+    plt.scatter(toi_ra[10],toi_dec[10], s=toi_size[10], c= bp_rp[10],cmap = 'Greys',label = str(toi_size[10]))
+    #plt.scatter(toi_ra[-1],toi_dec[-1], s=toi_size[-1], c= bp_rp[-1],cmap = 'Greys',label = str(toi_size[-1]))
+    plt.scatter(toi_ra,toi_dec,s=toi_size, c = bp_rp,cmap = 'RdYlBu_r')
+    plt.xlabel('RA (deg)')
+    plt.ylabel('dec (deg)')
+    plt.colorbar(label =r'$B_p - R_p$')
+    plt.legend(loc = 'best')
+    plt.show()
 
+    #find directory of each data set
+    directories = []
+    count = 0
+    for star in fits:
+        directory = g_o.get_folder(star)
+        directories.append(directory)
+        print(count)
+        count+=1
+    print(directories)
+    
 for name in tois:
-    for toi in toi_info_:
-        if str(toi[0][4:]) in str(name):
-            i = toi_index[tois.index(name)]
-            obs_type[i] += toi[1]
-#find directory of each data set
-directories = []
-count = 0
-for star in fits:
-    directory = g_o.get_folder(star)
-    directories.append(directory)
-    print(count)
-    count+=1
-print(directories)
+        for toi in toi_info_:
+            if str(toi[0][4:]) in str(name):
+                i = toi_index[tois.index(name)]
+                obs_type[i] += toi[1]
+        
 t = Table([star_names, uniq_radec,obs_type,num_obs,Teff,K_pl, jds, fits,dirs], names = ('star_names','ra_dec','obs_type','number_obs','T_eff','K_pl','julian_obs_dates', 'fits_names','directory'))
-t.write('veloce_observations.fits', format = 'fits')
+t.write('veloce_observations_3.fits', format = 'fits')
 
 
 

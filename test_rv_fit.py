@@ -1,34 +1,44 @@
 from rv.least_squares_rv import *
 from rv.main_funcs import barycentric_correction
 from astropy.table import Table
+from os.path import exists
 
 save_dir = './' #'/home/ehold13/veloce_scripts/obs_corrected_fits/'
 data_logs = Table.read('/home/ehold13/veloce_scripts/veloce_observations.fits')
 Tau_Ceti = data_logs[data_logs['star_names']=='10700'][0]
 
-files = [Tau_Ceti[7][i].decode('utf-8') for i in range(7)]
-file_dates = [Tau_Ceti[8][i].decode('utf-8') for i in range(7)]
+files = ['11dec30096o.fits','11dec30097o.fits','12dec30132o.fits','12dec30133o.fits','12dec30134o.fits', '13dec30076o.fits','13dec30077o.fits','14dec30066o.fits','14dec30067o.fits','14dec30068o.fits','15dec30097o.fits', '15dec30098o.fits', '15dec30099o.fits']
+files.extend([Tau_Ceti[7][i].decode('utf-8') for i in range(len(Tau_Ceti))])
 
-#files = ['11dec30097o.fits', '12dec30132o.fits', '12dec30133o.fits', '12dec30134o.fits', '13dec30076o.fits', '13dec30077o.fits', '14dec30066o.fits', '14dec30067o.fits', '15dec30097o.fits', '15dec30098o.fits', '15dec30099o.fits']
-#for i,file_name in enumerate(files):
-    #s,w,se = create_observation_fits('11dec30096o.fits',file_name,file_dates[i],'/home/ehold13/veloce_scripts/obs_corrected_fits/')
+file_dates = ['191211','191211','191212','191212','191212','191213','191213','191214','191214','191214','191215','191215','191215']
+file_dates.extend([Tau_Ceti[8][i].decode('utf-8') for i in range(len(Tau_Ceti))])
+
+for i,file_name in enumerate(files):
+    if not exists('/priv/avatar/ehold13/obs_corrected/'+file_name[0:10]+'_corrected.fits'):
+        print('Working on fits: '+ str(file_name))
+        s,w,se = create_observation_fits('11dec30096o.fits',file_name,file_dates[i],'/priv/avatar/ehold13/obs_corrected/')
 
 fitting_files = ['11dec30096','11dec30097','12dec30132','12dec30133','12dec30134', '13dec30076','13dec30077','14dec30066','14dec30067','14dec30068','15dec30097', '15dec30098', '15dec30099']
 
 # do some testing on files which weren't used to make the template
-fitting_files = [f[0:10] for f in files]
+fitting_files.extend([f[0:10] for f in files])
+
 
 #fitting_files = fitting_files[:1] #!!!
-velocity_err = np.zeros([len(fitting_files),36])
+velocity_err = np.zeros([len(fitting_files),16])
+velocity = np.zeros([len(fitting_files),16])
+velocity_uncertainty = np.zeros([len(fitting_files),16])
+
+
 file_ind = 0
-Tau_Ceti_Template = pyfits.open('/home/ehold13/veloce_scripts/Tau_Ceti_Template_dec2019_telluric_patched.fits')
+Tau_Ceti_Template = pyfits.open('/home/ehold13/veloce_scripts/Tau_Ceti_Template_dec2019_telluric_patched_3.fits')
 
 #plt.figure()
 #plt.plot(Tau_Ceti_Template[1].data,Tau_Ceti_Template[0].data)
 #plt.show()
 for fit in fitting_files:
+    obs_file_path = '/priv/avatar/ehold13/obs_corrected/'+fit+'_corrected.fits'
     
-    obs_file_path = '/home/ehold13/veloce_scripts/obs_corrected_fits/'+fit+'_corrected.fits'
     obs = pyfits.open(obs_file_path)
 
     spect = obs[0].data
@@ -38,7 +48,7 @@ for fit in fitting_files:
     if False:
         order = 36
         mask = np.isnan(Tau_Ceti_Template[0].data[:,order])  
-        temp_func = InterpolatedUnivariateSpline(Tau_Ceti_Template[1].data[:,order][~mask], Tau_Ceti_Template[0].data[:,order][~mask], k=5)
+        temp_func = InterpolatedUnivariateSpline(Tau_Ceti_Template[1].data[:,order][~mask], Tau_Ceti_Template[0].data[:,order][~mask], k=1)
         
         obs_mask = np.isnan(spect[401:3601,order,0])
         sp = rv_fitting_eqn_old([-24,1e-3,1e-1,1e-1],wavelength[401:3601,order,0][~obs_mask],spect[401:3601,order,0][~obs_mask],spect_err[401:3601,order,0][~obs_mask],temp_func, return_spec = True)
@@ -50,6 +60,7 @@ for fit in fitting_files:
         plt.ylabel('Flux')
         plt.title(fit)
         plt.legend(loc='best')
+        #plt.ylim(0,1.2)
         plt.show()
         
     #FIXME: There should be a better way than this of dealing with "bad" orders.
@@ -68,9 +79,9 @@ for fit in fitting_files:
         temp_spec = Tau_Ceti_Template[0].data[:,i][~mask]
          
         #FIXME: The template shouldn't have to be convolved after the fact.
-        #gg = np.exp(-np.linspace(-2,2,15)**2/2) #Must have an odd length.
-        #gg /= np.sum(gg)
-        #temp_spec = np.convolve(temp_spec,gg, mode='same')
+        gg = np.exp(-np.linspace(-2,2,15)**2/2) #Must have an odd length.
+        gg /= np.sum(gg)
+        temp_spec = np.convolve(temp_spec,gg, mode='same')
         #FIXME end...        
         
         temp_func = InterpolatedUnivariateSpline(temp_wave, temp_spec, k=1) 
@@ -124,11 +135,12 @@ for fit in fitting_files:
 
         rvs = np.array(rvs)
         rv_errs = np.array(rv_errs)
-        print(np.median(rvs))
         weights = 1/rv_errs**2
         wtmn_rv = np.sum(weights*rvs)/np.sum(weights)
         wtmn_rv_err = 1/np.sqrt(np.sum(weights))
         print("Weighted mean RV (km/s): {:.4f} +/- {:.4f}".format(wtmn_rv, wtmn_rv_err))
+        velocity[file_ind, order_ind] = wtmn_rv
+        velocity_uncertainty[file_ind, order_ind] = wtmn_rv_err
         #The mean square error will be significantly larger than 1 (e.g. more than 1.5) if fiber to fiber 
         #variations are determined by more than just random errors.
         print("MSE over fibers: {:.2f}".format(np.mean((wtmn_rv - rvs)**2/rv_errs**2)))
@@ -141,11 +153,20 @@ for fit in fitting_files:
             plt.ylabel('Velocity (km/s)')
             plt.show()
         
-        obs_day = obs_file_path[48:50]
-        BC_t, BC_star = barycentric_correction('11dec30096o.fits',obs_file_path[48:58]+'o.fits','191211','1912'+obs_day)
+        obs_day = obs_file_path[35:37]
+        print(obs_day)
+        print(obs_file_path[35:45])
+        BC_t, BC_star = barycentric_correction('11dec30096o.fits',obs_file_path[35:45]+'o.fits','191211','1912'+obs_day)
         
-        print('True Velocity ', BC_star*c.c.to(u.km/u.s).value)
+        print('True Velocity (km/s) ', BC_star*c.c.to(u.km/u.s).value)
         print('Velocity Difference (m/s) ', wtmn_rv*1000 - BC_star*c.c.to(u.m/u.s).value)
+        
+        if abs(wtmn_rv*1000 - BC_star*c.c.to(u.m/u.s).value) > 100:
+            print(wtmn_rv*1000 - BC_star*c.c.to(u.m/u.s).value)
+            print(wtmn_rv*1000)
+            print(BC_star*c.c.to(u.m/u.s).value)
+            print(fit, i)
+            raise UserWarning("High Error!!")
 
         print('Percentage Error ', 100*(wtmn_rv - BC_star*c.c.to(u.km/u.s).value)/(BC_star*c.c.to(u.km/u.s).value))
         velocity_err[file_ind, order_ind] = (wtmn_rv*1000 - BC_star*c.c.to(u.m/u.s).value)
@@ -157,8 +178,18 @@ if False:
         plt.figure()   
         plt.plot(velocity_err[:,order])
         plt.show()
-print('Velocity uncertainty, orders 89 to 99 (m/s): {:.1f}'.format(np.std(np.mean(velocity_err[:, :], axis=1)))) # was 24:34
+print('Velocity uncertainty, orders 89 to 99 (m/s): {:.1f}'.format(np.std(np.mean(velocity_err[0:15, :], axis=1)))) # was 24:34
 print('Internal dispersion, based on scatter between orders (m/s): ')
 print(np.std(velocity_err[:, :], axis=1)/np.sqrt(np.shape(velocity_err)[1])) # was np.std(velocity_err[:, 21:35], axis=1)/np.sqrt(14)
+
+#print(velocity_err)
+if False:
+    plt.figure()
+    plt.errorbar([11,11,12,12,12,13,13,14,14,14,15,15,15,17,17,19,19,19,19,19,21,28,28,28,28,28],np.median(velocity_err[:,:], 1),yerr=np.sum(velocity_uncertainty,1)*1000/len(velocity_uncertainty[:,0]),fmt = 'k.')
+    plt.xlabel('Date')
+    plt.ylabel('Median Velocity Error')
+    words = [str(i)+ 'dec19' for i in [11,12,13,14,15,17,19,21,28]]
+    plt.xticks([11,12,13,14,15,17,19,21,28], words)
+    plt.show()
 
 

@@ -36,7 +36,7 @@ def get_fits_path(fits,extension = 'extf'):
         # extract the path to the file
         desired_file = glob.glob('/priv/avatar/velocedata/Data/spec_211202/[12]?????/'+fit+'oi_'+extension+'.fits')
         # add the path to the list of file paths
-        all_files[i] = desired_file[0]
+        all_files[i] = desired_file
         i += 1
     
     return all_files

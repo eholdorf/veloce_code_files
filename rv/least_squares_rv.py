@@ -13,22 +13,26 @@ from barycorrpy import get_BC_vel
 from . import utils
 
 def create_observation_fits(standard, obs_fits, date, save_dir, combine_fibres = False):
+    # find the file path
     file_path = get_observations.get_fits_path([obs_fits.encode('utf-8')])
-    for path in file_path:
+    for path in sum(file_path,[]):
         if path[41:47] == date:
             fits_path = path
-       
+    
+    # read in the data and select the stellar fibres   
     dd = pyfits.open(fits_path)
     all_log_w = dd[1].data[:,:,4:23]
     all_s_logflux = dd[0].data[:,:,4:23]
     all_s_logerrflux = dd[2].data[:,:,4:23]
-
+    
+    # find the telluric spectrum for before and after the observation
     B_plus_saved = None
     wave_tell_b, telluric_spec_b, telluric_err_spec_b, target_info_b, telluric_info_b, B_plus_saved = telluric_correction(obs_fits,'before', fits_path[41:47] ,scrunch = True, B_plus = B_plus_saved)
     
     wave_tell_a, telluric_spec_a, telluric_err_spec_a, target_info_a, telluric_info_a, B_plus_saved = telluric_correction(obs_fits,'after', fits_path[41:47], scrunch = True, B_plus = B_plus_saved)
     
-  
+    
+    # do a time weighted average of the before and after tellurics if both exist
     if telluric_info_a[1]!= telluric_info_b[1]:
         telluric_spec = (telluric_spec_a*(target_info_b[3] - telluric_info_b[3]) + telluric_spec_b*(target_info_a[3] - telluric_info_a[3]))/(telluric_info_a[3]-telluric_info_b[3])
         telluric_err_spec = (((telluric_err_spec_a*(target_info_b[3] - telluric_info_b[3]))/(telluric_info_a[3]-telluric_info_b[3]))**2 + ((telluric_err_spec_b*(target_info_a[3] - telluric_info_a[3]))/(telluric_info_a[3]-telluric_info_b[3]))**2)**0.5
@@ -37,21 +41,26 @@ def create_observation_fits(standard, obs_fits, date, save_dir, combine_fibres =
         telluric_spec = telluric_spec_a
         telluric_err_spec = telluric_err_spec_a    
     
+    
     telluric = np.zeros([np.shape(all_log_w)[0],np.shape(all_log_w)[1]])
     telluric_error = np.zeros([np.shape(all_log_w)[0],np.shape(all_log_w)[1]])
-         
+    
+        
     for fibre in range(19):
         for order in range(40):
-                    
+            # interpolate the telluric spectrum onto that of the observation        
             telluric_interpolation_func = InterpolatedUnivariateSpline(wave_tell_a[:,order], telluric_spec[:,order],k=1)
             telluric_err_interpolation_func = InterpolatedUnivariateSpline(wave_tell_a[:,order], telluric_err_spec[:,order],k=1)
-           
+            
             telluric[:,order] = telluric_interpolation_func(all_log_w[:,order,fibre])
             telluric_error[:,order] = telluric_err_interpolation_func(all_log_w[:,order,fibre])
+            
             for wave in range(np.shape(all_log_w)[0]):
-                all_s_logerrflux[wave,order,fibre] = ((all_s_logerrflux[wave,order,fibre]/all_s_logflux[wave,order,fibre])**2 + (telluric_error[wave,order]/telluric[wave,order])**2)**0.5
+                all_s_logerrflux[wave,order,fibre] = ((all_s_logerrflux[wave,order,fibre]/all_s_logflux[wave,order,fibre])**2 + (telluric_error[wave,order]/telluric[wave,order])**2)**0.5 
+
             all_s_logflux[:,order,fibre] /= telluric[:,order]
-        
+            all_s_logerrflux *= all_s_logflux[wave,order,fibre]
+            
             mask = np.isnan(all_s_logflux[:,order,fibre])
             scale = np.median(all_s_logflux[:,order,fibre][~mask])
             all_s_logflux[:,order,fibre] /= scale
@@ -60,7 +69,7 @@ def create_observation_fits(standard, obs_fits, date, save_dir, combine_fibres =
     wavelength = all_log_w
     spect = all_s_logflux
     spect_err = all_s_logerrflux
-    
+
     if combine_fibres:
 
         spect = np.zeros((np.shape(wavelength)[0],40))
