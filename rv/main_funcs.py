@@ -433,10 +433,10 @@ def telluric_correction(obs_night, time, date, scrunch = True, B_plus = None, ai
 
     # create empty lists to fill with template spectrum
     telluric_spec = np.zeros([np.shape(flux_telluric)[0],np.shape(flux_telluric)[1]])
-    error_spec = np.zeros([np.shape(flux_telluric)[0],np.shape(flux_telluric)[1]])
+    #error_spec = np.zeros([np.shape(flux_telluric)[0],np.shape(flux_telluric)[1]])
     over_error_spec = np.zeros([np.shape(flux_telluric)[0],np.shape(flux_telluric)[1]])
     weights = np.ones([np.shape(flux_telluric)[0],np.shape(flux_telluric)[1]])
-	
+
     
     # iterate through the fibres and orders creating the spectrum
     for fibre in range(np.shape(flux_telluric)[2]):
@@ -445,16 +445,18 @@ def telluric_correction(obs_night, time, date, scrunch = True, B_plus = None, ai
             # find the scale factor that the order needs to be shifted by to make flat spectrum
             mask = np.isnan(flux_telluric[:,order,fibre])
             scale = np.median(flux_telluric[:,order,fibre][~mask])
+            
             for i in range(np.shape(flux_telluric)[0]):
                 # compute the weighted average
                 weight = 1/(flux_telluric_err[i,order,fibre]/scale)**2
+                #print('w',weight)
                 telluric_spec[i,order] += (flux_telluric[i,order,fibre]/scale)*weight
-                error_spec[i,order] += flux_telluric_err[i,order,fibre]/scale
+                #error_spec[i,order] += flux_telluric_err[i,order,fibre]/scale
                 over_error_spec[i,order] += weight
                 weights[i,order] += 1
-    telluric_spec /= over_error_spec*weights
-    over_error_spec /= weights
+    telluric_spec /= over_error_spec
     error_spec = (1/over_error_spec)**0.5
+    
     
     if B_plus == None:
         B_plus_saved = []
@@ -468,27 +470,32 @@ def telluric_correction(obs_night, time, date, scrunch = True, B_plus = None, ai
             # read in pre-saved matrix
             B_plus = np.load('/priv/avatar/ehold13/B_plus_num_points_22600_order'+str(order)+'.npy', allow_pickle = True)
         telluric_spec[:,order], Bplus = telluric_masking(wavelength[:,order], telluric_spec[:,order], order, Bplus = B_plus)
+        
         #np.save('/priv/avatar/ehold13/B_plus_num_points_22600_order'+str(order)+'.npy', np.array(Bplus),allow_pickle = True)            
         if len(B_plus_saved) != 40:
             B_plus_saved.append(Bplus)
-        
+    
     for order in range(40):
         # scale the spectrum and error
         telluric_spec_mask = np.isnan(telluric_spec[:,order])
         scale = np.median(telluric_spec[:,order][~telluric_spec_mask])
+        
         telluric_spec[:,order] /= scale
         error_spec[:,order] /= scale
+        
         for wave in range(np.shape(telluric_spec)[0]):
             # remove 0 points
             if telluric_spec[wave,order]==0:
+                print('NaN here')
                 telluric_spec[wave,order] = np.nan
-                error_spec[wave,order] = np.nan
-                 
+                error_spec[wave,order] = np.nan             
     
     # apply an airmass correction
-    if airmass_corr:          
+    if airmass_corr:
+        error_spec *= (airmass_star[1]/airmass_telluric[1]) /telluric_spec  
         telluric_spec = telluric_spec**((airmass_star[1]/airmass_telluric[1]))
-                       
+        error_spec *= telluric_spec
+                   
     return wavelength, telluric_spec, error_spec, target_star, telluric_star, B_plus_saved
 
 def barycentric_correction(template_obs, star_obs, template_date, star_date, table_dir='/priv/avatar/velocedata/anu_processing/'):
@@ -621,6 +628,7 @@ def generate_template(file_paths, dates, save_spect = False, save_name = ''):
         else:
             telluric_spec = telluric_spec_a
             telluric_err_spec = telluric_err_spec_a
+
         # scrunch the observation data
         wavelength, flux_t, flux_t_err, flux_s, flux_s_err, airmass = log_scale_interpolation(file_paths[0],obs,dates[0], dates[index],BC=False)
         
@@ -629,11 +637,10 @@ def generate_template(file_paths, dates, save_spect = False, save_name = ''):
         for fibre in range(19):
             for order in range(40):
                 for wave in range(np.shape(flux_s)[0]):
-                    # propagate the errors a/b = ([sig_a/a]**2 + [sig_b/b]**2)**0.5
+                    # propagate the errors err/(a/b) = ([sig_a/a]**2 + [sig_b/b]**2)**0.5
                     flux_s_err[wave,order,fibre] = ((flux_s_err[wave,order,fibre]/flux_s[wave,order,fibre])**2 + (telluric_err_spec[wave,order]/telluric_spec[wave,order])**2)**0.5
             flux_s[:,:,fibre] /= telluric_spec
-            flux_s_err *= flux_s
-            
+            flux_s_err[:,:,fibre] *= flux_s[:,:,fibre]
         
         # calculate the barycentric correction for the observation
         template_delta_lambda, star_delta_lambda = barycentric_correction(file_paths[0],obs, dates[0],dates[index])   
@@ -651,8 +658,10 @@ def generate_template(file_paths, dates, save_spect = False, save_name = ''):
             # iterate through the orders
             for order in range(40):
                 # want to add all observations together, so need them on the same wavelength scale
-                obs_interp_func = InterpolatedUnivariateSpline(wavelength[:,order], flux_s[:,order,fibre], k =1)
-                obs_err_interp_func = InterpolatedUnivariateSpline(wavelength[:,order], flux_s_err[:,order,fibre], k = 1)
+                flux_mask = np.isnan(flux_s[:,order,fibre])
+                obs_interp_func = InterpolatedUnivariateSpline(wavelength[:,order][~flux_mask], flux_s[:,order,fibre][~flux_mask], k =1)
+                err_mask = np.isnan(flux_s_err[:,order,fibre])
+                obs_err_interp_func = InterpolatedUnivariateSpline(wavelength[:,order][~err_mask], flux_s_err[:,order,fibre][~err_mask], k = 1)
         
                 flux_s[:,order,fibre] = obs_interp_func(wavelength_standard[:,order])
                 flux_s_err[:,order,fibre] = obs_err_interp_func(wavelength_standard[:,order])
@@ -671,7 +680,7 @@ def generate_template(file_paths, dates, save_spect = False, save_name = ''):
                     good_pixels[i, order, fibre] = spectrum[i]/error[i]**2
                     error_good_pixels[i,order,fibre] = error[i]
                     one_over_error_good_pixels[i,order,fibre] = 1/error[i]**2
-                    num_good_pixels[i,order,fibre] += 1
+                    
 
         # add the observation to the list and do the same for the errors
         template_spectrum += good_pixels
@@ -680,13 +689,12 @@ def generate_template(file_paths, dates, save_spect = False, save_name = ''):
 
        
     # divide by the number of pixels that went into each sum, and divide by the weights (1/sum(error))**0.5
-    template_spectrum_error /= num_good_pixels
-    template_spectrum_one_on_error /= num_good_pixels
-    template_spectrum /=num_good_pixels*template_spectrum_one_on_error
+    template_spectrum /= template_spectrum_one_on_error
     template_spectrum_error = (1/template_spectrum_one_on_error)**0.5
     
     # find the median fibre height to check for bad pixels, only include the stellar fibres
     median_fibre_spectrum = np.median(template_spectrum,2)
+    
        
     # for each fibre, find the median difference between it and median_fibre_spectrum and remove pixels with a difference much larger than this
     template = np.zeros([np.shape(template_spectrum)[0],np.shape(template_spectrum)[1]])
@@ -720,12 +728,34 @@ def generate_template(file_paths, dates, save_spect = False, save_name = ''):
     error = (1/one_on_error)**0.5
     # set all 0 values to NaN and values which have a low signal to noise
     print('Doing a signal to noise cut.')
+    bad_pixels = np.zeros([len(template[:,order]),40])
     for order in range(40):
-        for wave in range(np.shape(diff)[0]):
-            if (template[wave,order]==0) | (template[wave,order]<3*error[wave,order]):
-                template[wave,order] = np.nan
-                error[wave,order] = np.nan
-                
+        for wave in range(np.shape(template)[0]):
+            if (template[wave,order]==0) | (template[wave,order]<error[wave,order]) | np.isnan(template[wave,order]):
+                bad_pixels[wave,order] = 1
+    
+    # this will make the NaN values at the end of each order in the template become flat
+    start_index = 0
+    end_index = -1
+    for order in range(40):
+        while np.isnan(template[start_index,order]):
+            print(start_index, template[start_index,order])
+            start_index += 1
+        for wave in range(start_index):
+            template[wave,order] = template[start_index,order]
+            
+        while np.isnan(template[end_index,order]):
+            end_index -= 1
+            print(template[end_index,order])
+        for wave in range(1,abs(end_index)+1):
+            template[-wave,order] = template[end_index,order]          
+    
+    # patch over the NaN values and signal to noise using Bmatrix as to not have NaNs in final template
+    Bplus = None
+    for order in range(40):
+        template[:,order], B_plus = utils.correct_bad(template[:,order],bad_pixels[:,order], Bplus)
+        error[:,order], B_plus = utils.correct_bad(error[:,order],bad_pixels[:,order], B_plus)                        
+
     # return the template spectrum with weighted average
     if save_spect:
         primary_hdu = pyfits.PrimaryHDU(template)

@@ -11,6 +11,7 @@ import astropy.constants as c
 import astropy.units as u
 from barycorrpy import get_BC_vel
 from . import utils
+from rv.main_funcs import barycentric_correction
 
 def create_observation_fits(standard, obs_fits, date, save_dir, combine_fibres = False):
     # find the file path
@@ -59,7 +60,8 @@ def create_observation_fits(standard, obs_fits, date, save_dir, combine_fibres =
                 all_s_logerrflux[wave,order,fibre] = ((all_s_logerrflux[wave,order,fibre]/all_s_logflux[wave,order,fibre])**2 + (telluric_error[wave,order]/telluric[wave,order])**2)**0.5 
 
             all_s_logflux[:,order,fibre] /= telluric[:,order]
-            all_s_logerrflux *= all_s_logflux[wave,order,fibre]
+            
+            all_s_logerrflux[:,order,fibre] *= all_s_logflux[:,order,fibre]
             
             mask = np.isnan(all_s_logflux[:,order,fibre])
             scale = np.median(all_s_logflux[:,order,fibre][~mask])
@@ -253,5 +255,81 @@ def test_rv_chi2(params, rvs, lwave, spect, spect_err, template, lwave0, dlwave)
         chi2s[i] = np.sum(resid**2)
     return chi2s
 
-    
+def generate_rvs(star_name, date, template):
+    veloce_obs = Table.read('/home/ehold13/veloce_scripts/veloce_observations.fits')
+
+    # limit to the given star name and date
+    stars = veloce_obs[veloce_obs['star_names']==star_name]
+
+    obs_index = []
+
+    for j,star in enumerate(stars):
+        for index,yymmdd in enumerate(star[8]):
+            if yymmdd.decode('utf-8') == date:
+                obs_index.append((j,index))
+
+    files = [stars[obs[0]][7][obs[1]].decode('utf-8') for obs in obs_index]
+
+    orders = [6,7,13,14,17,25,26,27,28,30,31,33,34,35,36,37]
+    rvs = np.empty((len(files),len(orders),19))
+    rv_errs = np.empty((len(files),len(orders),19))
+    mses = np.empty((len(files),len(orders),19))
+
+    wtmn_rv = np.empty((len(files),len(orders)))
+    wtmn_rv_err = np.empty((len(files),len(orders)))
+    velocity_errors = np.empty((len(files),len(orders)))
+
+    for fit_index,fits in enumerate(files):
+        obs_file_path = '/priv/avatar/ehold13/obs_corrected/'+fits[0:10]+'_corrected.fits'
+        observation = pyfits.open(obs_file_path)
+        print(obs_file_path)
+        spectrum = observation[0].data
+        wavelength = observation[1].data
+        error = observation[2].data
+        
+        for order_index,order in enumerate(orders): #enumerate(range(np.shape(spectrum)[1])):
+            temp_wave = template[1].data[:,order]
+            temp_spec = template[0].data[:,order]
+            gaus = np.exp(-np.linspace(-2,2,15)**2/2) 
+            gaus /= np.sum(gaus)
+            temp_spec = np.convolve(temp_spec,gaus, mode='same')
+            
+            temp_func = InterpolatedUnivariateSpline(temp_wave, temp_spec, k=1) 
+            temp_lwave = np.log(temp_wave)
+            
+            temp_dlwave = temp_lwave[1]-temp_lwave[0]
+            
+            
+            for fibre_index,fibre in enumerate(range(np.shape(spectrum)[2])):
+             
+                spect = spectrum[830:3200,order,fibre]
+                mask = np.isnan(spect)
+                spect = spect[~mask]
+                wave = wavelength[830:3200,order,fibre][~mask].astype(np.float64)
+                log_wave = np.log(wave)
+                err = error[830:3200,order,fibre][~mask]
+                
+                if 0==len(log_wave):
+                    continue
+                    
+                a = optimise.least_squares(rv_fitting_eqn,x0 = [-26,0,0,0], args=(log_wave, spect, err, temp_spec, temp_lwave[0], temp_dlwave), \
+                    jac=rv_jac, method='lm')    
+                cov = np.linalg.inv(np.dot(a.jac.T,a.jac))    
+                if a.success: 
+                    rvs[fit_index,order_index,fibre_index] = a.x[0]
+                    mse = np.mean(a.fun**2) 
+                    mses[fit_index,order_index,fibre_index] = mse
+                    rv_errs[fit_index,order_index,fibre_index] = np.sqrt(mse)*np.sqrt(cov[0,0])
+                    
+                
+            weights = 1/rv_errs[fit_index,order_index,:]**2
+            wtmn_rv[fit_index,order_index] = np.sum(weights*rvs[fit_index,order_index,:])/np.sum(weights)
+            wtmn_rv_err[fit_index,order_index] = 1/np.sqrt(np.sum(weights))
+                
+            obs_day = obs_file_path[35:37]
+            BC_t, BC_star = barycentric_correction('11dec30096o.fits',obs_file_path[35:45]+'o.fits','191211','1912'+obs_day)
+            velocity_errors[fit_index, order_index] = (wtmn_rv[fit_index,order_index]*1000 - BC_star*c.c.to(u.m/u.s).value)
+            
+    return velocity_errors, files, orders
+        
 

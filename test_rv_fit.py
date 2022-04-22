@@ -7,19 +7,19 @@ save_dir = './' #'/home/ehold13/veloce_scripts/obs_corrected_fits/'
 data_logs = Table.read('/home/ehold13/veloce_scripts/veloce_observations.fits')
 Tau_Ceti = data_logs[data_logs['star_names']=='10700'][0]
 
-files = ['11dec30096o.fits','11dec30097o.fits','12dec30132o.fits','12dec30133o.fits','12dec30134o.fits', '13dec30076o.fits','13dec30077o.fits','14dec30066o.fits','14dec30067o.fits','14dec30068o.fits','15dec30097o.fits', '15dec30098o.fits', '15dec30099o.fits']
-files.extend([Tau_Ceti[7][i].decode('utf-8') for i in range(len(Tau_Ceti))])
+files = ['11dec30096o.fits','11dec30097o.fits','12dec30132o.fits','12dec30133o.fits','12dec30134o.fits', '13dec30076o.fits', '13dec30077o.fits', '14dec30066o.fits', '14dec30067o.fits', '14dec30068o.fits', '15dec30097o.fits', '15dec30098o.fits', '15dec30099o.fits']
+
+#files.extend([Tau_Ceti[7][i].decode('utf-8') for i in range(len(Tau_Ceti))])
 
 file_dates = ['191211','191211','191212','191212','191212','191213','191213','191214','191214','191214','191215','191215','191215']
-file_dates.extend([Tau_Ceti[8][i].decode('utf-8') for i in range(len(Tau_Ceti))])
+
+#file_dates.extend([Tau_Ceti[8][i].decode('utf-8') for i in range(len(Tau_Ceti))])
 
 for i,file_name in enumerate(files):
     if not exists('/priv/avatar/ehold13/obs_corrected/'+file_name[0:10]+'_corrected.fits'):
         print('Working on fits: '+ str(file_name))
         s,w,se = create_observation_fits('11dec30096o.fits',file_name,file_dates[i],'/priv/avatar/ehold13/obs_corrected/')
-
-fitting_files = ['11dec30096','11dec30097','12dec30132','12dec30133','12dec30134', '13dec30076','13dec30077','14dec30066','14dec30067','14dec30068','15dec30097', '15dec30098', '15dec30099']
-
+#s,w,se = create_observation_fits('11dec30096o.fits','11dec30088o.fits','191211','/priv/avatar/ehold13/obs_corrected/')
 
 # do some testing on files which weren't used to make the template
 fitting_files = [f[0:10] for f in files]
@@ -30,26 +30,23 @@ fitting_files = [f[0:10] for f in files]
 orders= list(range(11,15))
 orders.extend(list(range(17,39))) #!!! Was 40
 #To do all orders... (note issues with NaNs)
-#orders= list(range(3,5))
-#orders.extend(list(range(6,10)))
-#orders.extend(list(range(11,15))) 
-#orders.extend(list(range(17,39)))
+orders= list(range(5,5))
+orders.extend(list(range(6,10)))
+orders.extend(list(range(11,15))) 
+orders.extend(list(range(17,39)))
 
 orders = [6,7,13,14,17,25,26,27,28,30,31,33,34,35,36,37] #!!! Temp, orders which have low telluric contamination based on Bplus matrix size
 
-
 velocity_err = np.zeros([len(fitting_files),len(orders)])
-velocity = np.zeros([len(fitting_files),16])
-velocity_uncertainty = np.zeros([len(fitting_files),16])
+velocity = np.zeros([len(fitting_files),len(orders)])
+velocity_uncertainty = np.zeros([len(fitting_files),len(orders)])
 
-Tau_Ceti_Template = pyfits.open('/home/ehold13/veloce_scripts/Tau_Ceti_Template_dec2019_telluric_patched_3.fits')
+Tau_Ceti_Template = pyfits.open('/home/ehold13/veloce_scripts/Tau_Ceti_Template_dec2019_telluric_patched_4.fits')
 
-#plt.figure()
-#plt.plot(Tau_Ceti_Template[1].data,Tau_Ceti_Template[0].data)
-#plt.show()
 
 mjds = []
 for file_ind, fit in enumerate(fitting_files):
+    print('Calculating RV for: ' + str(fit)+'...')
     obs_file_path = '/priv/avatar/ehold13/obs_corrected/'+fit+'_corrected.fits'
     obs = pyfits.open(obs_file_path)
     procfile = '/priv/avatar/velocedata/Data/spec_211202/1912' + fit[:2] + '/' + fit + 'oi_extf.fits'
@@ -85,9 +82,8 @@ for file_ind, fit in enumerate(fitting_files):
         temp_wave = Tau_Ceti_Template[1].data[:,i]
         temp_spec = Tau_Ceti_Template[0].data[:,i] 
         
-        #mask = np.isnan(Tau_Ceti_Template[0].data[:,i])
-        #temp_wave = Tau_Ceti_Template[1].data[:,i][~mask]
-        #temp_spec = Tau_Ceti_Template[0].data[:,i][~mask]
+        
+        
         #FIXME: The template shouldn't have to be convolved after the fact. There are some high frequency parts of the 
         #spectrum - where do they come from?
         gg = np.exp(-np.linspace(-2,2,15)**2/2) #Must have an odd length.
@@ -97,18 +93,23 @@ for file_ind, fit in enumerate(fitting_files):
         
         temp_func = InterpolatedUnivariateSpline(temp_wave, temp_spec, k=1) 
         temp_lwave = np.log(temp_wave)
+        
         temp_dlwave = temp_lwave[1]-temp_lwave[0]
         rvs = []
         rv_errs = []
         mses = []
         for j in range(19):
             spect_mask = np.isnan(spect[830:3200,i,j])
+            
             spect_wave = wavelength[830:3200,i,j][~spect_mask].astype(np.float64) #Converting to float64 is essential!
             spect_spec = spect[830:3200,i,j][~spect_mask]
+            
             spect_err_ = np.sqrt(np.abs(spect_err[830:3200,i,j][~spect_mask])) #??? It seems that the errors are too small.
-            if np.sum(np.isnan(spect_err_))>0:
-                import pdb; pdb.set_trace()
+            #if np.sum(np.isnan(spect_err_))>0:
+            #    import pdb; pdb.set_trace()
             spect_lwave = np.log(spect_wave)
+            
+            
             
             # changing intial conditions changes answer and MSE 
             #a = optimise.leastsq(rv_fitting_eqn_old,x0 = [-24,1e-3,1e-3,1e-3], args=(spect_wave, spect_spec, spect_err_, temp_func), epsfcn=1e-6, full_output = True, ftol=1e-6, gtol=1e-6)
@@ -116,6 +117,9 @@ for file_ind, fit in enumerate(fitting_files):
 #rv_fitting_eqn(params, lwave, spect, spect_err, template, lwave0, dlwave, return_spec = False):
             #a = optimise.leastsq(rv_fitting_eqn,x0 = [-25,1e-3,1e-3,1e-3], args=(spect_lwave, spect_spec, spect_err_, temp_spec, temp_lwave[0], temp_dlwave), \
             #   epsfcn=1e-4, full_output = True, ftol=1e-7, gtol=1e-7)     
+            if 0==len(spect_lwave):
+                continue
+                
             a = optimise.least_squares(rv_fitting_eqn,x0 = [-26,0,0,0], args=(spect_lwave, spect_spec, spect_err_, temp_spec, temp_lwave[0], temp_dlwave), \
                 jac=rv_jac, method='lm') 
 
@@ -165,8 +169,6 @@ for file_ind, fit in enumerate(fitting_files):
             plt.show()
         
         obs_day = obs_file_path[35:37]
-        print(obs_day)
-        print(obs_file_path[35:45])
         BC_t, BC_star = barycentric_correction('11dec30096o.fits',obs_file_path[35:45]+'o.fits','191211','1912'+obs_day)
         
         print('True Velocity (km/s) ', BC_star*c.c.to(u.km/u.s).value)
@@ -177,7 +179,7 @@ for file_ind, fit in enumerate(fitting_files):
             print(wtmn_rv*1000)
             print(BC_star*c.c.to(u.m/u.s).value)
             print(fit, i)
-            raise UserWarning("High Error!!")
+            #raise UserWarning("High Error!!")
 
         print('Percentage Error ', 100*(wtmn_rv - BC_star*c.c.to(u.km/u.s).value)/(BC_star*c.c.to(u.km/u.s).value))
         velocity_err[file_ind, order_ind] = (wtmn_rv*1000 - BC_star*c.c.to(u.m/u.s).value)
@@ -196,7 +198,15 @@ simple_means = np.mean(velocity_err, axis=1)
 for i in range(len(simple_means)):
     print("{:.6f},{:.1f},{:.1f}".format(mjds[i], simple_means[i], simple_std[i]))
 
-#print(velocity_err)
+plt.figure()
+plt.imshow(velocity_err)
+plt.xlabel('Order')
+plt.ylabel('Observation')
+plt.colorbar(label = 'RV Error (m/s)')
+plt.xticks(list(range(len(orders))),orders)
+# [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21]
+plt.yticks([0,1,2,3,4,5,6,7,8,9,10,11,12],fitting_files)
+plt.show()
 if False:
     plt.figure()
     plt.errorbar([11,11,12,12,12,13,13,14,14,14,15,15,15,17,17,19,19,19,19,19,21,28,28,28,28,28],np.median(velocity_err[:,:], 1),yerr=np.sum(velocity_uncertainty,1)*1000/len(velocity_uncertainty[:,0]),fmt = 'k.')
