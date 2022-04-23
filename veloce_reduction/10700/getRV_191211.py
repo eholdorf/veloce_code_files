@@ -4,6 +4,7 @@ from rv.least_squares_rv import *
 from rv.main_funcs import barycentric_correction
 from astropy.table import Table
 import astropy.io.fits as pyfits
+import matplotlib.pyplot as plt
 
 # put star name and date of observations here
 star_name = '10700'

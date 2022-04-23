@@ -765,3 +765,18 @@ def generate_template(file_paths, dates, save_spect = False, save_name = ''):
         hdul.writeto('/home/ehold13/veloce_scripts/'+save_name+'.fits') 
     return wavelength_standard, template, error
     
+    
+def generate_RV_files(name,date,temp, plotting = False):
+    lines = ['import sys\n','sys.path.append("/home/ehold13/veloce_scripts/")\n','from rv.least_squares_rv import *\n', 'from rv.main_funcs import barycentric_correction\n','from astropy.table import Table\n', 'import astropy.io.fits as pyfits\n','import matplotlib.pyplot as plt\n','\n','# put star name, date and template here\n', 'star_name ='+"\'"+str(name)+"\'"+'\n','date ='+"\'"+str(date)+"\'"+ '\n','template = pyfits.open('+"\'"+str(temp)+"\'"+')\n','velocity_errors, files, orders = generate_rvs(star_name,date,template)\n','\n',]
+    if plotting:
+        lines.extend(['if True:'])
+    else:
+        lines.extend(['if False:'])
+    plot_lines = ['\n','    plt.figure()\n','    plt.imshow(velocity_errors)\n','    plt.xlabel("Order")\n','    plt.ylabel("Observation")\n','    plt.colorbar(label = "RV Error (m/s)")\n','    plt.xticks(list(range(len(orders))),orders)\n','    plt.yticks(list(range(len(files))),files)\n','    plt.show()\n']
+    lines.extend(plot_lines)
+    
+    f = open('/home/ehold13/veloce_scripts/veloce_reduction/' + str(name)+ '/getRV_'+str(date)+'.py',"w" )
+    for line in lines:
+        f.write(line)
+    f.close()
+    
