@@ -4,6 +4,8 @@ Some utility functions to help with the RV reduction
 import numpy as np
 import matplotlib.pyplot as plt
 import pdb
+from astropy.table import Table
+import os
 
 def correct_bad(in_spect, bad_mask, Bplus=None, max_ftpix = 64):
     """
@@ -62,6 +64,45 @@ def correct_bad(in_spect, bad_mask, Bplus=None, max_ftpix = 64):
     ext_spect[bad] += addit
 
     return ext_spect[:len(in_spect)] + offset, Bplus
+     
+#Create local global variables in this script.
+thisdir = os.path.dirname(os.path.abspath(__file__))
+allzero = Table.read(thisdir + '/../data/vccf_allzero.txt', format='ascii')
+ifuzero = Table.read(thisdir + '/../data/vccf_ifuzero.txt', format='ascii')
+orderslope = Table.read(thisdir + '/../data/vccf_orderslope.txt', format='ascii')
+lcoffset = Table.read(thisdir + '/../data/vccf_lcoffset.txt', format='ascii')
+lcoffset_lis = []
+#Convert this to a list of lists.
+MIN_ORDER = 67
+for i in range(MIN_ORDER,103):
+    ww = np.where(lcoffset['m']==i)[0]
+    lcoffset_lis += [[lcoffset['MJD'][ww].data, lcoffset['offset'][ww].data]]
+
+    
+def correct_lc_rv_chris(mjd, min_order=67, max_order=102, return_all=False):
+    """Based on Chris Tinney's computations, compute the corrections as a
+    function of order"""
+    if min_order < MIN_ORDER:
+        raise UserWarning("Invalid minimum order for Veloce Rosso!")
+        
+    norders = max_order - min_order + 1
+
+    slope_offsets = np.zeros(norders)
+    lc_offsets = np.zeros(norders)
+
+    this_slope = np.interp(mjd, orderslope['MJD'], orderslope['orderslope'])
+    zero_offset = np.interp(mjd, allzero['MJD'], allzero['zeropoint'])
+    ifu_offset = np.interp(mjd, ifuzero['MJD'], ifuzero['zeropoint'])
+    for i in range(norders):
+        xy = lcoffset_lis[min_order-MIN_ORDER + i]
+        if len(xy[0]) != 0:
+            lc_offsets[i] = np.interp(mjd, xy[0], xy[1])
+        slope_offsets[i] = (i+min_order-84) * this_slope
+        
+    if return_all:
+        return slope_offsets, lc_offsets, zero_offset, ifu_offset
+    else:
+        return slope_offsets+ lc_offsets+ zero_offset+ ifu_offset
      
 
 #Here is some code to standalone test this 
