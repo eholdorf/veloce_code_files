@@ -9,17 +9,17 @@ Tau_Ceti = data_logs[data_logs['star_names']=='10700'][0]
 
 files = ['11dec30096o.fits','11dec30097o.fits','12dec30132o.fits','12dec30133o.fits','12dec30134o.fits', '13dec30076o.fits', '13dec30077o.fits', '14dec30066o.fits', '14dec30067o.fits', '14dec30068o.fits', '15dec30097o.fits', '15dec30098o.fits', '15dec30099o.fits']
 
-#files.extend([Tau_Ceti[7][i].decode('utf-8') for i in range(len(Tau_Ceti))])
+files.extend([Tau_Ceti[7][i].decode('utf-8') for i in range(len(Tau_Ceti[7]))])
 
 file_dates = ['191211','191211','191212','191212','191212','191213','191213','191214','191214','191214','191215','191215','191215']
 
-#file_dates.extend([Tau_Ceti[8][i].decode('utf-8') for i in range(len(Tau_Ceti))])
+file_dates.extend([Tau_Ceti[8][i].decode('utf-8') for i in range(len(Tau_Ceti[8]))])
 
 for i,file_name in enumerate(files):
     if not exists('/priv/avatar/ehold13/obs_corrected/'+file_name[0:10]+'_corrected.fits'):
         print('Working on fits: '+ str(file_name))
         s,w,se = create_observation_fits('11dec30096o.fits',file_name,file_dates[i],'/priv/avatar/ehold13/obs_corrected/')
-#s,w,se = create_observation_fits('11dec30096o.fits','11dec30088o.fits','191211','/priv/avatar/ehold13/obs_corrected/')
+
 
 # do some testing on files which weren't used to make the template
 fitting_files = [f[0:10] for f in files]

@@ -255,7 +255,8 @@ def test_rv_chi2(params, rvs, lwave, spect, spect_err, template, lwave0, dlwave)
         chi2s[i] = np.sum(resid**2)
     return chi2s
 
-def generate_rvs(star_name, date, template):
+def generate_rvs(star_name, date, template, int_guess = -20):
+    
     veloce_obs = Table.read('/home/ehold13/veloce_scripts/veloce_observations.fits')
 
     # limit to the given star name and date
@@ -282,7 +283,12 @@ def generate_rvs(star_name, date, template):
     for fit_index,fits in enumerate(files):
         obs_file_path = '/priv/avatar/ehold13/obs_corrected/'+fits[0:10]+'_corrected.fits'
         observation = pyfits.open(obs_file_path)
-        print(obs_file_path)
+        
+        BC_t, BC_star = barycentric_correction('11dec30096o.fits',obs_file_path[35:45]+'o.fits','191211',date)
+        if BC_star > 0:
+            int_guess  = 20
+        
+        print('Fitting Observation '+fits+', '+str(int(fit_index)+1)+'/'+str(len(files)))
         spectrum = observation[0].data
         wavelength = observation[1].data
         error = observation[2].data
@@ -312,7 +318,7 @@ def generate_rvs(star_name, date, template):
                 if 0==len(log_wave):
                     continue
                     
-                a = optimise.least_squares(rv_fitting_eqn,x0 = [-26,0,0,0], args=(log_wave, spect, err, temp_spec, temp_lwave[0], temp_dlwave), \
+                a = optimise.least_squares(rv_fitting_eqn,x0 = [int_guess,0,0,0], args=(log_wave, spect, err, temp_spec, temp_lwave[0], temp_dlwave), \
                     jac=rv_jac, method='lm')    
                 cov = np.linalg.inv(np.dot(a.jac.T,a.jac))    
                 if a.success: 
@@ -326,10 +332,14 @@ def generate_rvs(star_name, date, template):
             wtmn_rv[fit_index,order_index] = np.sum(weights*rvs[fit_index,order_index,:])/np.sum(weights)
             wtmn_rv_err[fit_index,order_index] = 1/np.sqrt(np.sum(weights))
                 
-            obs_day = obs_file_path[35:37]
-            BC_t, BC_star = barycentric_correction('11dec30096o.fits',obs_file_path[35:45]+'o.fits','191211','1912'+obs_day)
+            #obs_day = date #obs_file_path[35:37]
+            #BC_t, BC_star = barycentric_correction('11dec30096o.fits',obs_file_path[35:45]+'o.fits','191211',obs_day)
+            print(BC_star*c.c, wtmn_rv[fit_index,order_index]*1000)
             velocity_errors[fit_index, order_index] = (wtmn_rv[fit_index,order_index]*1000 - BC_star*c.c.to(u.m/u.s).value)
-            
+    print('Velocity uncertainty, list of orders (m/s): {:.1f}'.format(np.std(np.mean(velocity_errors, axis=1)))) # was 24:34
+    print('Internal dispersion, based on scatter between orders (m/s): ')
+    simple_std = np.std(velocity_errors, axis=1)/np.sqrt(len(orders))
+    print(simple_std)        
     return velocity_errors, files, orders
         
 

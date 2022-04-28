@@ -13,11 +13,12 @@ template = pyfits.open('/home/ehold13/veloce_scripts/Tau_Ceti_Template_dec2019_t
 
 velocity_errors, files, orders = generate_rvs(star_name,date,template)
 
-plt.figure()
-plt.imshow(velocity_errors)
-plt.xlabel('Order')
-plt.ylabel('Observation')
-plt.colorbar(label = 'RV Error (m/s)')
-plt.xticks(list(range(len(orders))),orders)
-plt.yticks(list(range(len(files))),files)
-plt.show()
+if True:
+    plt.figure()
+    plt.imshow(velocity_errors)
+    plt.xlabel('Order')
+    plt.ylabel('Observation')
+    plt.colorbar(label = 'RV Error (m/s)')
+    plt.xticks(list(range(len(orders))),orders)
+    plt.yticks(list(range(len(files))),files)
+    plt.show()
