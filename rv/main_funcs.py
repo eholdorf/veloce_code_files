@@ -7,6 +7,7 @@ from astropy.table import Table
 from . import get_observations
 import astropy.constants as c
 import astropy.units as u
+import os
 try:
     from barycorrpy import get_BC_vel
 except:
@@ -360,7 +361,7 @@ def telluric_masking(wavelengths, spectrum, order, Bplus = None):
     return spectrum/smoothed_patched_spectrum, B_plus
    
 
-def telluric_correction(obs_night, time, date, scrunch = True, B_plus = None, airmass_corr = True, scale_star = '11dec30096o.fits', scale_date = '191211'):
+def telluric_correction(obs_night, time, date, scrunch = True, B_plus = None, airmass_corr = True, scale_star = '11dec30096o.fits', scale_date = '191211', save = True):
     """
     Description
     -----------
@@ -419,7 +420,7 @@ def telluric_correction(obs_night, time, date, scrunch = True, B_plus = None, ai
         element 3 - byte (float) : modified julian date for the telluric star observation
     """ 
     # find a telluric star for the given observation
-    target_star, telluric_star = find_telluric_star(obs_night, time,date)
+    target_star, telluric_star = find_telluric_star(obs_night, time, date)
     # scrunch the data for both the telluric star and observation onto scale_star wavelength scale with no barycentric correction
     
     if scrunch:
@@ -470,11 +471,12 @@ def telluric_correction(obs_night, time, date, scrunch = True, B_plus = None, ai
             # read in pre-saved matrix
             B_plus = np.load('/priv/avatar/ehold13/B_plus_num_points_22600_order'+str(order)+'.npy', allow_pickle = True)
         telluric_spec[:,order], Bplus = telluric_masking(wavelength[:,order], telluric_spec[:,order], order, Bplus = B_plus)
-        
+        del Bplus
         #np.save('/priv/avatar/ehold13/B_plus_num_points_22600_order'+str(order)+'.npy', np.array(Bplus),allow_pickle = True)            
-        if len(B_plus_saved) != 40:
-            B_plus_saved.append(Bplus)
-    
+        #if len(B_plus_saved) != 40:
+        
+            #B_plus_saved.append(Bplus)
+    del B_plus_saved
     for order in range(40):
         # scale the spectrum and error
         telluric_spec_mask = np.isnan(telluric_spec[:,order])
@@ -490,12 +492,28 @@ def telluric_correction(obs_night, time, date, scrunch = True, B_plus = None, ai
                 telluric_spec[wave,order] = np.nan
                 error_spec[wave,order] = np.nan             
     
+    if save:
+        if not os.path.exists('/priv/avatar/ehold13/tellurics/'+str(telluric_star[2].decode('utf-8'))+'_'+str(telluric_star[1].decode('utf-8'))[0:10]+'.fits'):
+            c1 = pyfits.Column(name ='Airmass',format=str(len(str(airmass_telluric[1])))+'A',array = [airmass_telluric[1]])
+            c3 = pyfits.Column(name = 'MJDs', format = '1D',array = [telluric_star[3]])
+            
+            coldefs = pyfits.ColDefs([c1, c3])
+            
+            table_hdu = pyfits.BinTableHDU.from_columns(coldefs)
+            image_hdu2 = pyfits.PrimaryHDU(telluric_spec)
+            image_hdu3 = pyfits.ImageHDU(wavelength)
+            image_hdu4 = pyfits.ImageHDU(error_spec)
+            
+            hdul = pyfits.HDUList([image_hdu2, image_hdu3, image_hdu4,table_hdu])
+            hdul.writeto('/priv/avatar/ehold13/tellurics/'+str(telluric_star[2].decode('utf-8'))+'_'+str(telluric_star[1].decode('utf-8'))[0:10]+'.fits') 
+        
     # apply an airmass correction
     if airmass_corr:
         error_spec *= (airmass_star[1]/airmass_telluric[1]) /telluric_spec  
         telluric_spec = telluric_spec**((airmass_star[1]/airmass_telluric[1]))
         error_spec *= telluric_spec
-                   
+    
+    B_plus_saved = None               
     return wavelength, telluric_spec, error_spec, target_star, telluric_star, B_plus_saved
 
 def barycentric_correction(template_obs, star_obs, template_date, star_date, table_dir='/priv/avatar/velocedata/anu_processing/'):
@@ -762,12 +780,12 @@ def generate_template(file_paths, dates, save_spect = False, save_name = ''):
         image_hdu = pyfits.ImageHDU(wavelength_standard)
         image_hdu2 = pyfits.ImageHDU(error)
         hdul = pyfits.HDUList([primary_hdu, image_hdu, image_hdu2])
-        hdul.writeto('/home/ehold13/veloce_scripts/'+save_name+'.fits') 
+        hdul.writeto(save_name+'.fits') 
     return wavelength_standard, template, error
     
     
 def generate_RV_files(name,date,temp, plotting = False):
-    lines = ['import sys\n','sys.path.append("/home/ehold13/veloce_scripts/")\n','from rv.least_squares_rv import *\n', 'from rv.main_funcs import barycentric_correction\n','from astropy.table import Table\n', 'import astropy.io.fits as pyfits\n','import matplotlib.pyplot as plt\n','\n','# put star name, date and template here\n', 'star_name ='+"\'"+str(name)+"\'"+'\n','date ='+"\'"+str(date)+"\'"+ '\n','template = pyfits.open('+"\'"+str(temp)+"\'"+')\n','velocity_errors, files, orders = generate_rvs(star_name,date,template)\n','\n',]
+    lines = ['import sys\n','sys.path.append("/home/ehold13/veloce_scripts/")\n','from rv.least_squares_rv import *\n', 'from rv.main_funcs import barycentric_correction\n','from astropy.table import Table\n', 'import astropy.io.fits as pyfits\n','import matplotlib.pyplot as plt\n','\n','# put star name, date and template here\n', 'star_name ='+"\'"+str(name)+"\'"+'\n','date ='+"\'"+str(date)+"\'"+ '\n','template ='+"\'"+str(temp)+"\'"+'\n','velocity_errors, files, orders = generate_rvs(star_name,date,template)\n','\n',]
     if plotting:
         lines.extend(['if True:'])
     else:

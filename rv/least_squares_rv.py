@@ -4,6 +4,7 @@ import astropy.io.fits as pyfits
 from astropy.table import Table
 from .main_funcs import log_scale_interpolation
 from .main_funcs import telluric_correction
+from .main_funcs import find_telluric_star
 from . import get_observations
 from scipy.interpolate import InterpolatedUnivariateSpline
 import scipy.optimize as optimise
@@ -12,6 +13,8 @@ import astropy.units as u
 from barycorrpy import get_BC_vel
 from . import utils
 from rv.main_funcs import barycentric_correction
+import os
+from astropy.time import Time
 
 def create_observation_fits(standard, obs_fits, date, save_dir, combine_fibres = False):
     # find the file path
@@ -25,13 +28,40 @@ def create_observation_fits(standard, obs_fits, date, save_dir, combine_fibres =
     all_log_w = dd[1].data[:,:,4:23]
     all_s_logflux = dd[0].data[:,:,4:23]
     all_s_logerrflux = dd[2].data[:,:,4:23]
+    airmass_star = dd[0].header['AIRMASS']
+    
+    
+    target_info_a, telluric_info_a = find_telluric_star(obs_fits, 'after', date)
+    target_info_b, telluric_info_b = find_telluric_star(obs_fits, 'before', date)
     
     # find the telluric spectrum for before and after the observation
     B_plus_saved = None
-    wave_tell_b, telluric_spec_b, telluric_err_spec_b, target_info_b, telluric_info_b, B_plus_saved = telluric_correction(obs_fits,'before', fits_path[41:47] ,scrunch = True, B_plus = B_plus_saved)
+    if not os.path.exists('/priv/avatar/ehold13/tellurics/'+str(telluric_info_b[2].decode('utf-8'))+'_'+str(telluric_info_b[1].decode('utf-8'))[0:10]+'.fits'):
+        wave_tell_b, telluric_spec_b, telluric_err_spec_b, target_info_b, telluric_info_b, B_plus_saved = telluric_correction(obs_fits,'before', fits_path[41:47] ,scrunch = True, B_plus = B_plus_saved, airmass_corr = False)
+    if not os.path.exists('/priv/avatar/ehold13/tellurics/'+str(telluric_info_a[2].decode('utf-8'))+'_'+str(telluric_info_a[1].decode('utf-8'))[0:10]+'.fits'):
+        wave_tell_a, telluric_spec_a, telluric_err_spec_a, target_info_a, telluric_info_a, B_plus_saved = telluric_correction(obs_fits,'after', fits_path[41:47], scrunch = True, B_plus = B_plus_saved,airmass_corr = False)
+   
     
-    wave_tell_a, telluric_spec_a, telluric_err_spec_a, target_info_a, telluric_info_a, B_plus_saved = telluric_correction(obs_fits,'after', fits_path[41:47], scrunch = True, B_plus = B_plus_saved)
+    telluric_a = pyfits.open('/priv/avatar/ehold13/tellurics/'+str(telluric_info_a[2].decode('utf-8'))+'_'+str(telluric_info_a[1].decode('utf-8'))[0:10]+'.fits')
+    telluric_a_airmass = float(telluric_a[3].data['AIRMASS'][0])
     
+    telluric_spec_a = telluric_a[0].data
+    telluric_err_spec_a = telluric_a[2].data*(airmass_star/telluric_a_airmass) /telluric_spec_a 
+    telluric_spec_a = telluric_a[0].data ** (airmass_star/telluric_a_airmass)
+    telluric_err_spec_a *= telluric_spec_a
+    
+    wave_tell_a = telluric_a[1].data
+    
+    telluric_b = pyfits.open('/priv/avatar/ehold13/tellurics/'+str(telluric_info_b[2].decode('utf-8'))+'_'+str(telluric_info_b[1].decode('utf-8'))[0:10]+'.fits')
+    
+    telluric_b_airmass = float(telluric_b[3].data['AIRMASS'][0])
+    
+    telluric_spec_b = telluric_b[0].data
+    telluric_err_spec_b = telluric_b[2].data*(airmass_star/telluric_b_airmass) /telluric_spec_b
+    telluric_spec_b = telluric_b[0].data ** (airmass_star/telluric_b_airmass)
+    telluric_err_spec_b *= telluric_spec_b
+    
+    wave_tell_b = telluric_b[1].data
     
     # do a time weighted average of the before and after tellurics if both exist
     if telluric_info_a[1]!= telluric_info_b[1]:
@@ -63,10 +93,6 @@ def create_observation_fits(standard, obs_fits, date, save_dir, combine_fibres =
             
             all_s_logerrflux[:,order,fibre] *= all_s_logflux[:,order,fibre]
             
-            mask = np.isnan(all_s_logflux[:,order,fibre])
-            scale = np.median(all_s_logflux[:,order,fibre][~mask])
-            all_s_logflux[:,order,fibre] /= scale
-            all_s_logerrflux[:,order,fibre] /= scale
     
     wavelength = all_log_w
     spect = all_s_logflux
@@ -80,11 +106,15 @@ def create_observation_fits(standard, obs_fits, date, save_dir, combine_fibres =
             for order in range(40):
                 spect[:,order] += all_s_logflux[:,order,fibre]
                 spect_err[:,order] += all_s_logerrflux[:,order,fibre]
-        
-    primary_hdu = pyfits.PrimaryHDU(spect)
-    image_hdu = pyfits.ImageHDU(wavelength)
-    image_hdu2 = pyfits.ImageHDU(spect_err)
-    hdul = pyfits.HDUList([primary_hdu, image_hdu, image_hdu2])
+    prim = pyfits.PrimaryHDU()
+    ph = prim.header 
+    ph.set('Fits', obs_fits)
+    ph.set('Date', date)   
+    primary_hdu = pyfits.ImageHDU(spect, name = 'spectrum')
+    image_hdu = pyfits.ImageHDU(wavelength, name= 'wavelength')
+    image_hdu2 = pyfits.ImageHDU(spect_err, name = 'error')
+
+    hdul = pyfits.HDUList([prim,primary_hdu, image_hdu, image_hdu2])
     hdul.writeto(save_dir+obs_fits[0:10] + '_corrected.fits')
     
     return spect, wavelength, spect_err
@@ -255,7 +285,7 @@ def test_rv_chi2(params, rvs, lwave, spect, spect_err, template, lwave0, dlwave)
         chi2s[i] = np.sum(resid**2)
     return chi2s
 
-def generate_rvs(star_name, date, template, int_guess = -20):
+def generate_rvs(star_name, date, template_path, int_guess = -20):
     
     veloce_obs = Table.read('/home/ehold13/veloce_scripts/veloce_observations.fits')
 
@@ -270,30 +300,43 @@ def generate_rvs(star_name, date, template, int_guess = -20):
                 obs_index.append((j,index))
 
     files = [stars[obs[0]][7][obs[1]].decode('utf-8') for obs in obs_index]
+    
+    f = [str(files[i]) for i in range(len(files))] 
 
-    orders = [6,7,13,14,17,25,26,27,28,30,31,33,34,35,36,37]
-    rvs = np.empty((len(files),len(orders),19))
-    rv_errs = np.empty((len(files),len(orders),19))
+    orders = list(range(39)) 
+    #orders = [6,7,13,14,17,25,26,27,28,30,31,33,34,35,36,37]
+    rvs = np.zeros((len(files),len(orders),19))
+    rv_errs = np.zeros((len(files),len(orders),19))
     mses = np.empty((len(files),len(orders),19))
+    med_flux = np.zeros((len(files),len(orders),19))
 
     wtmn_rv = np.empty((len(files),len(orders)))
     wtmn_rv_err = np.empty((len(files),len(orders)))
     velocity_errors = np.empty((len(files),len(orders)))
+    
+    BCs = np.empty(len(files))
+    MJDs = np.empty(len(files))
 
     for fit_index,fits in enumerate(files):
-        obs_file_path = '/priv/avatar/ehold13/obs_corrected/'+fits[0:10]+'_corrected.fits'
+        obs_file_path = '/priv/avatar/ehold13/obs_corrected/'+star_name+'/'+fits[0:10]+'_corrected.fits'
         observation = pyfits.open(obs_file_path)
         
-        BC_t, BC_star = barycentric_correction('11dec30096o.fits',obs_file_path[35:45]+'o.fits','191211',date)
+        orig_file = pyfits.getheader('/priv/avatar/velocedata/Data/spec_211202/' + date + '/' + fits[0:10] + 'oi_extf.fits')
+        MJDs[fit_index] = orig_file['UTMJD']
+        
+        BC_t, BC_star = barycentric_correction('11dec30096o.fits',fits[0:10]+'o.fits','191211',date)
+        BCs[fit_index] = BC_star*c.c.to(u.km*u.s**-1).value
         if BC_star > 0:
             int_guess  = 20
         
         print('Fitting Observation '+fits+', '+str(int(fit_index)+1)+'/'+str(len(files)))
-        spectrum = observation[0].data
-        wavelength = observation[1].data
-        error = observation[2].data
+        spectrum = observation['spectrum'].data
+        wavelength = observation['wavelength'].data
+        error = observation['error'].data
+        
         
         for order_index,order in enumerate(orders): #enumerate(range(np.shape(spectrum)[1])):
+            template = pyfits.open(template_path)
             temp_wave = template[1].data[:,order]
             temp_spec = template[0].data[:,order]
             gaus = np.exp(-np.linspace(-2,2,15)**2/2) 
@@ -307,17 +350,24 @@ def generate_rvs(star_name, date, template, int_guess = -20):
             
             
             for fibre_index,fibre in enumerate(range(np.shape(spectrum)[2])):
-             
+                
                 spect = spectrum[830:3200,order,fibre]
                 mask = np.isnan(spect)
                 spect = spect[~mask]
                 wave = wavelength[830:3200,order,fibre][~mask].astype(np.float64)
                 log_wave = np.log(wave)
                 err = error[830:3200,order,fibre][~mask]
+
+                med_flux[fit_index,order_index,fibre_index] = np.median(spect)
+                
+                mask = np.isnan(spect)
+                scale = np.median(spect[~mask])
+                spect /= scale
+                err /= scale
                 
                 if 0==len(log_wave):
                     continue
-                    
+                initial_cond = [int_guess,0,0,0]
                 a = optimise.least_squares(rv_fitting_eqn,x0 = [int_guess,0,0,0], args=(log_wave, spect, err, temp_spec, temp_lwave[0], temp_dlwave), \
                     jac=rv_jac, method='lm')    
                 cov = np.linalg.inv(np.dot(a.jac.T,a.jac))    
@@ -334,12 +384,93 @@ def generate_rvs(star_name, date, template, int_guess = -20):
                 
             #obs_day = date #obs_file_path[35:37]
             #BC_t, BC_star = barycentric_correction('11dec30096o.fits',obs_file_path[35:45]+'o.fits','191211',obs_day)
-            print(BC_star*c.c, wtmn_rv[fit_index,order_index]*1000)
+            print(order_index,BC_star*c.c, wtmn_rv[fit_index,order_index]*1000, abs(BC_star*c.c.value - wtmn_rv[fit_index,order_index]*1000))
             velocity_errors[fit_index, order_index] = (wtmn_rv[fit_index,order_index]*1000 - BC_star*c.c.to(u.m/u.s).value)
     print('Velocity uncertainty, list of orders (m/s): {:.1f}'.format(np.std(np.mean(velocity_errors, axis=1)))) # was 24:34
     print('Internal dispersion, based on scatter between orders (m/s): ')
     simple_std = np.std(velocity_errors, axis=1)/np.sqrt(len(orders))
-    print(simple_std)        
+    print(simple_std) 
+    
+    if not os.path.exists('/home/ehold13/veloce_scripts/veloce_reduction/'+star_name+'/fits_'+str(date)+'.fits'):
+ 
+        c1 = pyfits.Column(name ='Template',format=str(len(template_path))+'A',array = [template_path])
+        c2 = pyfits.Column(name = 'Files',format = str(len(files[0]))+'A',array = files)
+        c3 = pyfits.Column(name = 'MJDs', format = '1D',array = MJDs)
+        c4 = pyfits.Column(name = 'BCs', format = '1D', array = BCs)
+        coldefs = pyfits.ColDefs([c1, c2, c3, c4])
+        
+        table_hdu = pyfits.BinTableHDU.from_columns(coldefs)
+        primary_hdu = pyfits.PrimaryHDU()
+        primary_header = primary_hdu.header
+        primary_header.set('Star', star_name)
+        primary_header.set('Date', date)
+        image_hdu2 = pyfits.ImageHDU(rvs, name = 'rv')
+        image_hdu3 = pyfits.ImageHDU(rv_errs, name = 'error')
+        image_hdu4 = pyfits.ImageHDU(med_flux, name = 'median_flux')
+        
+        hdul = pyfits.HDUList([primary_hdu,image_hdu2, image_hdu3, image_hdu4,table_hdu])
+        #hdul = pyfits.HDUList([primary_hdu, image_hdu, image_hdu5, image_hdu1, image_hdu2, image_hdu3, image_hdu4])
+        #hdul.writeto('/home/ehold13/veloce_scripts/veloce_reduction/10700/'+save_name+'.fits') 
+        hdul.writeto('/home/ehold13/veloce_scripts/veloce_reduction/'+star_name+'/fits_'+str(date)+'.fits') 
+           
     return velocity_errors, files, orders
         
-
+def rv_err_obs(file_names):
+    rvs = []
+    mnrvs = []
+    times = []
+    errs = []
+    for ind, file_name in enumerate(file_names):
+        dd = pyfits.open(file_name)
+        wtmn_rv_ord = np.empty((len(dd[1].data),np.shape(dd[4].data)[1]))
+        wtmn_rv_err_ord = np.empty((len(dd[1].data),np.shape(dd[4].data)[1]))
+        
+        wtmn_rv = np.empty(len(dd[1].data))
+        wtmn_rv_err = np.empty(len(dd[1].data))
+        
+        for fit in range(len(dd[1].data)):
+            for order in range(np.shape(dd[4].data)[1]):
+                weights = 1/dd[5].data[fit,order,:]**2
+                wtmn_rv_ord[fit,order] = np.sum(weights*dd[4].data[fit,order,:])/np.sum(weights)
+                wtmn_rv_err_ord[fit,order] = 1/np.sqrt(np.sum(weights))
+        
+        for fit in range(len(dd[1].data)):
+            weights = 1/wtmn_rv_err_ord[fit,:]**2
+            wtmn_rv[fit] = np.sum(weights*wtmn_rv_ord[fit,:])/np.sum(weights)
+            wtmn_rv_err[fit] = 1/np.sqrt(np.sum(weights))
+        times.extend(Time(dd[2].data, format='mjd').to_datetime())
+        rvs.extend(wtmn_rv*1000 - dd[3].data*c.c.value)
+        mnrvs.extend([np.mean(wtmn_rv*1000 - dd[3].data*c.c.value)]*len(dd[3].data))
+        errs.extend(wtmn_rv_err*1000)
+    
+    mn = 0
+    rms = 0
+    count = 0
+    plt.figure()
+    for i in range(len(errs)):
+        if abs(np.array(rvs[i]) - np.array(mnrvs[i])) + errs[i] < 15:
+            mn += rvs[i] - mnrvs[i]
+            rms += (rvs[i] - mnrvs[i])**2
+            count += 1
+            plt.errorbar(times[i], rvs[i] - mnrvs[i],yerr = errs[i],fmt = 'k.',capsize=5)
+    plt.ylabel('Barycentric Velocity Error (m/s)')
+    plt.xlabel('Date')
+    plt.tight_layout()
+    plt.show()
+    print('mean',mn/count)
+    print('rms',(rms/count)**0.5)
+    
+def obs_creation_loop(star_name):
+    dd = Table.read('/home/ehold13/veloce_scripts/veloce_observations.fits')
+    
+    stars = dd[dd['star_names']==star_name]
+    for star in stars:
+    
+        for i, fit in enumerate(star[7]):
+            if fit.decode('utf-8') != '':
+                if not os.path.exists('/priv/avatar/ehold13/obs_corrected/'+star_name+'/'+fit.decode('utf-8')[0:10]+'_corrected.fits'):
+                    print(fit)
+                    create_observation_fits('11dec30096o.fits',fit.decode('utf-8'),star[8][i].decode('utf-8'),'/priv/avatar/ehold13/obs_corrected/'+star_name+'/')
+                
+                
+            
