@@ -285,7 +285,7 @@ def test_rv_chi2(params, rvs, lwave, spect, spect_err, template, lwave0, dlwave)
         chi2s[i] = np.sum(resid**2)
     return chi2s
 
-def generate_rvs(star_name, date, template_path, int_guess = -20):
+def generate_rvs(star_name, date, template_path, int_guess = 0.1, telluric_depth_limit = 0.05):   
     
     veloce_obs = Table.read('/home/ehold13/veloce_scripts/veloce_observations.fits')
 
@@ -313,6 +313,8 @@ def generate_rvs(star_name, date, template_path, int_guess = -20):
     wtmn_rv = np.empty((len(files),len(orders)))
     wtmn_rv_err = np.empty((len(files),len(orders)))
     velocity_errors = np.empty((len(files),len(orders)))
+    total_rv = np.empty(len(files))
+    total_rv_error = np.empty(len(files))
     
     BCs = np.empty(len(files))
     MJDs = np.empty(len(files))
@@ -326,16 +328,24 @@ def generate_rvs(star_name, date, template_path, int_guess = -20):
         
         BC_t, BC_star = barycentric_correction('11dec30096o.fits',fits[0:10]+'o.fits','191211',date)
         BCs[fit_index] = BC_star*c.c.to(u.km*u.s**-1).value
-        if BC_star > 0:
-            int_guess  = 20
-        
+                
         print('Fitting Observation '+fits+', '+str(int(fit_index)+1)+'/'+str(len(files)))
         spectrum = observation['spectrum'].data
         wavelength = observation['wavelength'].data
+        wavelength += BC_star * wavelength
         error = observation['error'].data
         
         
         for order_index,order in enumerate(orders): #enumerate(range(np.shape(spectrum)[1])):
+            
+            tellurics = pyfits.open('/home/ehold13/veloce_scripts/tellurics_lines_widths_depths.fits')
+            lines = tellurics[0].data[order_index,:]
+            mask = np.isnan(lines)
+            lines = lines[~mask]
+            widths = tellurics[1].data[order_index,:][~mask]
+            depths = tellurics[2].data[order_index,:][~mask]
+
+            
             template = pyfits.open(template_path)
             temp_wave = template[1].data[:,order]
             temp_spec = template[0].data[:,order]
@@ -357,19 +367,44 @@ def generate_rvs(star_name, date, template_path, int_guess = -20):
                 wave = wavelength[830:3200,order,fibre][~mask].astype(np.float64)
                 log_wave = np.log(wave)
                 err = error[830:3200,order,fibre][~mask]
+                
+
 
                 med_flux[fit_index,order_index,fibre_index] = np.median(spect)
                 
                 mask = np.isnan(spect)
                 scale = np.median(spect[~mask])
+                #print(scale)
                 spect /= scale
                 err /= scale
+                scaled_median = med_flux[fit_index,order_index,fibre_index]/scale
                 
+             
                 if 0==len(log_wave):
                     continue
-                initial_cond = [int_guess,0,0,0]
-                a = optimise.least_squares(rv_fitting_eqn,x0 = [int_guess,0,0,0], args=(log_wave, spect, err, temp_spec, temp_lwave[0], temp_dlwave), \
-                    jac=rv_jac, method='lm')    
+                    
+                # set error to infinity in in deep telluric
+                for wave_index, lam in enumerate(wave):
+                    for index, line in enumerate(lines):
+                        if line - widths[index] < lam and lam < line + widths[index] and depths[index] > telluric_depth_limit:
+                            err[wave_index] = np.inf
+                        
+                        if abs(spect[wave_index])>3*abs(scaled_median):
+                            err[wave_index] = np.inf
+
+                
+                if np.isinf(err).all():
+                    continue            
+                initial_cond = [int_guess,1e-3,1e-3,1e-3]
+                a = optimise.least_squares(rv_fitting_eqn,x0 = initial_cond, args=(log_wave, spect, err, temp_spec, temp_lwave[0], temp_dlwave), \
+                    jac=rv_jac, method='lm')
+                if order == 130:
+                    plt.figure()
+                    plt.plot(wave,spect,label='original')
+                    plt.plot(wave,rv_fitting_eqn(a.x,log_wave, spect, err, temp_spec, temp_lwave[0], temp_dlwave, return_spec = True),label = 'fitted')
+                    plt.legend()
+                    plt.show()    
+                    
                 cov = np.linalg.inv(np.dot(a.jac.T,a.jac))    
                 if a.success: 
                     rvs[fit_index,order_index,fibre_index] = a.x[0]
@@ -379,13 +414,31 @@ def generate_rvs(star_name, date, template_path, int_guess = -20):
                     
                 
             weights = 1/rv_errs[fit_index,order_index,:]**2
-            wtmn_rv[fit_index,order_index] = np.sum(weights*rvs[fit_index,order_index,:])/np.sum(weights)
-            wtmn_rv_err[fit_index,order_index] = 1/np.sqrt(np.sum(weights))
+            wtmn_rv[fit_index,order_index] = np.nansum(weights*rvs[fit_index,order_index,:])/np.nansum(weights)
+            wtmn_rv_err[fit_index,order_index] = 1/np.sqrt(np.nansum(weights))
+            
                 
-            #obs_day = date #obs_file_path[35:37]
-            #BC_t, BC_star = barycentric_correction('11dec30096o.fits',obs_file_path[35:45]+'o.fits','191211',obs_day)
-            print(order_index,BC_star*c.c, wtmn_rv[fit_index,order_index]*1000, abs(BC_star*c.c.value - wtmn_rv[fit_index,order_index]*1000))
+            print(order_index,wtmn_rv[fit_index,order_index]*1000,'+/-',wtmn_rv_err[fit_index,order_index]*1000, 'm/s')
+            
             velocity_errors[fit_index, order_index] = (wtmn_rv[fit_index,order_index]*1000 - BC_star*c.c.to(u.m/u.s).value)
+    
+        total_weights = 1/wtmn_rv_err[fit_index,:]**2
+        for i,elem in enumerate(total_weights):
+            if np.isinf(elem):
+                total_weights[i] = 0
+        total_rv[fit_index] = np.nansum(total_weights*wtmn_rv[fit_index,:])/np.nansum(total_weights)
+        total_rv_error[fit_index] = 1/np.sqrt(np.nansum(total_weights))
+        print('total', total_rv[fit_index]*1000, '+/-',total_rv_error[fit_index]*1000, 'm/s')
+            
+    final_weights = 1/total_rv_error**2
+    
+    for i, elem in enumerate(final_weights):
+        if np.isinf(elem):
+            final_weights[i] = 0
+    final_rv = np.nansum(final_weights * total_rv)/np.nansum(final_weights)
+    final_error = 1/np.sqrt(np.nansum(final_weights))
+    print('Final Velocity (m/s): ',final_rv*1000,' +/- ', final_error*1000)
+    
     print('Velocity uncertainty, list of orders (m/s): {:.1f}'.format(np.std(np.mean(velocity_errors, axis=1)))) # was 24:34
     print('Internal dispersion, based on scatter between orders (m/s): ')
     simple_std = np.std(velocity_errors, axis=1)/np.sqrt(len(orders))
@@ -409,8 +462,6 @@ def generate_rvs(star_name, date, template_path, int_guess = -20):
         image_hdu4 = pyfits.ImageHDU(med_flux, name = 'median_flux')
         
         hdul = pyfits.HDUList([primary_hdu,image_hdu2, image_hdu3, image_hdu4,table_hdu])
-        #hdul = pyfits.HDUList([primary_hdu, image_hdu, image_hdu5, image_hdu1, image_hdu2, image_hdu3, image_hdu4])
-        #hdul.writeto('/home/ehold13/veloce_scripts/veloce_reduction/10700/'+save_name+'.fits') 
         hdul.writeto('/home/ehold13/veloce_scripts/veloce_reduction/'+star_name+'/fits_'+str(date)+'.fits') 
            
     return velocity_errors, files, orders
