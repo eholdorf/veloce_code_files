@@ -64,6 +64,40 @@ def correct_bad(in_spect, bad_mask, Bplus=None, max_ftpix = 64):
     ext_spect[bad] += addit
 
     return ext_spect[:len(in_spect)] + offset, Bplus
+    
+def voigt_like_profile(params, sz=64, subsamp=4):
+    """
+    Return a Voigt-like profile, where instead of simply using a Gaussian, we use a 
+    polynomial series multiplied by the Gaussian, which forms a complete basis for 
+    square integral functions. Additionally, we convolve with a pixel of width=subsamp.
+    """
+    gamma = params[0]
+    sigma = params[1]
+    poly = params[2:]
+    
+    #Spatial frequency in cycles per pixel
+    u = np.arange(sz//2 + 1)/sz * subsamp
+    
+    # We multiply the Fourier transforms of a Rectangle, Gaussian and Cauchy distribution
+    # together:
+    # Rectangle: np.sinc(u)
+    # Gauss: np.exp(-np.pi**2*sigma**2*u**2)
+    # Cauchy: np.exp(-gamma*u)
+    gauss = np.exp(-np.pi**2*sigma**2*u**2)
+    ft_func = gauss * np.exp(-gamma*u)  * np.sinc(u)
+    ft_func = ft_func.astype(np.complex)
+    
+    # Now for the polynomial
+    for ix, p in enumerate(poly):
+        if ix % 2:
+            ft_func += p * u**(ix+1) * gauss
+        else:
+            ft_func += 1j * p * u**(ix+1) * gauss
+    retfunc = np.fft.fftshift(np.fft.irfft(ft_func))
+    
+    #Return normalised function
+    return retfunc/np.sum(retfunc)
+    
      
 #Create local global variables in this script.
 thisdir = os.path.dirname(os.path.abspath(__file__))
@@ -107,15 +141,17 @@ def correct_lc_rv_chris(mjd, min_order=67, max_order=102, return_all=False):
 
 #Here is some code to standalone test this 
 if __name__=="__main__":
-    x = np.arange(2048)-1299
-    y = np.exp(-x**2/500**2)
-    bad = np.zeros(2048, dtype=np.int8)
-    bad[[5,60,100,130,400,500,501,502,503,1300,1301,1302,1303,1304]]=1
-    yorig = y.copy()
-    y[bad==1] = 1.1
-    corrected, Bplus = correct_bad(y, bad)
-    plt.clf()
-    plt.plot(y)
-    plt.plot(yorig)
-    plt.plot(corrected)
-    plt.show()
+    #Test of correct_bad
+    if False:
+        x = np.arange(2048)-1299
+        y = np.exp(-x**2/500**2)
+        bad = np.zeros(2048, dtype=np.int8)
+        bad[[5,60,100,130,400,500,501,502,503,1300,1301,1302,1303,1304]]=1
+        yorig = y.copy()
+        y[bad==1] = 1.1
+        corrected, Bplus = correct_bad(y, bad)
+        plt.clf()
+        plt.plot(y)
+        plt.plot(yorig)
+        plt.plot(corrected)
+        plt.show()
