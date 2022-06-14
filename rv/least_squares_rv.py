@@ -15,6 +15,9 @@ from . import utils
 from rv.main_funcs import barycentric_correction
 import os
 from astropy.time import Time
+import time
+from progressbar import progressbar
+from progress.bar import ShadyBar
 
 def create_observation_fits(standard, obs_fits, date, save_dir, combine_fibres = False):
     # find the file path
@@ -284,8 +287,116 @@ def test_rv_chi2(params, rvs, lwave, spect, spect_err, template, lwave0, dlwave)
         resid = rv_fitting_eqn(thisparams, lwave, spect, spect_err, template, lwave0, dlwave)
         chi2s[i] = np.sum(resid**2)
     return chi2s
+    
 
-def generate_rvs(star_name, date, template_path, int_guess = 0.1, telluric_depth_limit = 0.05):   
+def combination_method_two(observation_dir = '/home/ehold13/veloce_scripts/veloce_reduction/10700/', dispersion_limit = 0.1):
+    all_obs_rvs = []
+    all_order_rvs = []
+    
+    # iterate over the Tau Ceti Observations
+    for fit_index,fits in enumerate(os.listdir(observation_dir)):
+        if fits.endswith('.fits'): # fits in ['fits_191211.fits']:  #fits.endswith('.fits'):
+            observations = pyfits.open(observation_dir + fits)
+            
+            # now take weighted mean over the fibres to get a velocity per order for each observation
+            order_rv = np.empty((len(observations['RV'].data[:,0,0]),len(observations['RV'].data[0,:,0])))
+            order_rv_err = np.empty((len(observations['RV'].data[:,0,0]),len(observations['RV'].data[0,:,0])))
+            
+            fit_rv = np.empty(len(observations['RV'].data[:,0,0]))
+            fit_rv_err = np.empty(len(observations['RV'].data[:,0,0]))
+                    
+            # for each observation on this date check to see if have low dispersion (i.e. is a good observation)
+            for obs in range(len(observations['RV'].data[:,0,0])):
+                if np.std(observations['RV'].data[obs,3:,:]) < dispersion_limit:
+                    rvs = observations['RV'].data[obs,:,:]
+                    errors = observations['ERROR'].data[obs,:,:]
+
+                    # combine fibres with weighted-mean
+                    for order in range(len(rvs[0,:])):
+                        weights =  1/errors[order,:]**2
+                        for i,weight in enumerate(weights):
+                            if np.isinf(weight):
+                                weights[i] = 0
+                        if np.nansum(weights) == 0:
+                            order_rv[obs,order] = np.nan
+                            order_rv_err[obs,order] = np.nan
+                        else:
+                            order_rv[obs,order] = np.nansum(weights*rvs[order,:])/np.nansum(weights)
+                            order_rv_err[obs,order] = 1/np.sqrt(np.nansum(weights))
+                
+                # combine orders
+                weights = 1/order_rv_err[obs,:]**2
+                for i,weight in enumerate(weights):
+                    if np.isinf(weight):
+                        weights[i] = 0
+                if np.nansum(weights) == 0:
+                    fit_rv[obs] = np.nan
+                    fit_rv_err[obs] = np.nan
+                else:
+                    fit_rv[obs] = np.nansum(weights*order_rv[obs,:])/np.nansum(weights)
+                    fit_rv_err[obs] = 1/np.sqrt(np.nansum(weights))
+                       
+            all_obs_rvs.extend(fit_rv)
+            all_order_rvs.extend(order_rv)
+
+    all_obs_rvs = np.array(all_obs_rvs)
+    all_order_rvs = np.array(all_order_rvs)
+    
+    all_obs_rvs = np.where(np.isinf(all_obs_rvs),np.nan,all_obs_rvs)
+    all_order_rvs = np.where(np.isinf(all_order_rvs),np.nan,all_order_rvs)
+    
+    mean_sq_resid = np.nanmean((all_obs_rvs - np.transpose(all_order_rvs))**2,1)
+    
+    mean_sq_resid = np.where(mean_sq_resid == 0, np.inf, mean_sq_resid)
+    
+    return mean_sq_resid
+            
+    
+def combination_method_three(observation_dir, dispersion_limit = 0.1):
+    median_flux = []
+    v_wtmn = []
+    for fits in os.listdir(observation_dir):
+        if fits.endswith('.fits'):
+            observations = pyfits.open(observation_dir + fits)
+            for obs in range(len(observations['RV'].data[:,0,0])):
+                if np.std(observations['RV'].data[obs,3:,:]) < dispersion_limit:
+                    median_flux.append(observations['median_flux'].data[obs,:,:])
+                    v_wtmn.append(observations['RV'].data[obs,:,:])
+
+    median_flux = np.array(median_flux)
+    v_wtmn = np.array(v_wtmn)
+    order_means = np.mean(np.mean(median_flux,0),1)
+    good_orders = np.where(order_means == order_means)[0]
+
+    median_flux = median_flux[:,good_orders,:]
+    v_wtmn = v_wtmn[:,good_orders,:]
+    
+    for obs in range(np.shape(median_flux[:,0,0])[0]):
+        for order in range(np.shape(median_flux[0,:,0])[0]):
+            median_flux[obs,order,:] /= np.mean(median_flux[obs,order,:])
+            v_wtmn -= np.mean(v_wtmn[obs,order,:])
+            
+    X = median_flux.reshape((median_flux.shape[0],median_flux.shape[1]*median_flux.shape[2]))
+    v_wtmn = v_wtmn.reshape((v_wtmn.shape[0],v_wtmn.shape[1]*v_wtmn.shape[2]))             
+    
+    W,V = np.linalg.eigh(np.dot(X.T,X))
+    
+    A = V[:,-4:]
+    
+    Y = np.dot(X,A)
+    p = np.dot(np.dot(np.linalg.inv(np.dot(Y.T,Y)),Y.T),v_wtmn)
+    
+    v_adjust = v_wtmn - np.dot(Y,p)
+    
+    plt.imshow(v_adjust, aspect = 'auto', interpolation = 'nearest')
+    plt.show()
+    
+    plt.imshow(p*1000, aspect = 'auto', interpolation = 'nearest')
+    plt.colorbar()
+    plt.show()
+              
+
+def generate_rvs(star_name, date, template_path, int_guess = 0.1, alpha = 0.2, residual_limit = 0.5,runs = 1, total_runs = 2):   
     
     veloce_obs = Table.read('/home/ehold13/veloce_scripts/veloce_observations.fits')
 
@@ -303,7 +414,7 @@ def generate_rvs(star_name, date, template_path, int_guess = 0.1, telluric_depth
     
     f = [str(files[i]) for i in range(len(files))] 
 
-    orders = list(range(39)) 
+    orders = list(range(40)) 
     #orders = [6,7,13,14,17,25,26,27,28,30,31,33,34,35,36,37]
     rvs = np.zeros((len(files),len(orders),19))
     rv_errs = np.zeros((len(files),len(orders),19))
@@ -318,8 +429,11 @@ def generate_rvs(star_name, date, template_path, int_guess = 0.1, telluric_depth
     
     BCs = np.empty(len(files))
     MJDs = np.empty(len(files))
-
+    
+    
     for fit_index,fits in enumerate(files):
+        bar = ShadyBar('Fitting', max=len(orders)*19, suffix = '%(percent).1f%%, time remaining %(eta)ds')
+        
         obs_file_path = '/priv/avatar/ehold13/obs_corrected/'+star_name+'/'+fits[0:10]+'_corrected.fits'
         observation = pyfits.open(obs_file_path)
         
@@ -329,7 +443,9 @@ def generate_rvs(star_name, date, template_path, int_guess = 0.1, telluric_depth
         BC_t, BC_star = barycentric_correction('11dec30096o.fits',fits[0:10]+'o.fits','191211',date)
         BCs[fit_index] = BC_star*c.c.to(u.km*u.s**-1).value
                 
-        print('Fitting Observation '+fits+', '+str(int(fit_index)+1)+'/'+str(len(files)))
+        print('\nFitting Observation '+fits+', '+str(int(fit_index)+1)+'/'+str(len(files)))
+
+    
         spectrum = observation['spectrum'].data
         wavelength = observation['wavelength'].data
         wavelength += BC_star * wavelength
@@ -360,75 +476,85 @@ def generate_rvs(star_name, date, template_path, int_guess = 0.1, telluric_depth
             
             
             for fibre_index,fibre in enumerate(range(np.shape(spectrum)[2])):
-                
-                spect = spectrum[830:3200,order,fibre]
-                mask = np.isnan(spect)
-                spect = spect[~mask]
-                wave = wavelength[830:3200,order,fibre][~mask].astype(np.float64)
-                log_wave = np.log(wave)
-                err = error[830:3200,order,fibre][~mask]
-                
-
-
-                med_flux[fit_index,order_index,fibre_index] = np.median(spect)
-                
-                mask = np.isnan(spect)
-                scale = np.median(spect[~mask])
-                #print(scale)
-                spect /= scale
-                err /= scale
-                scaled_median = med_flux[fit_index,order_index,fibre_index]/scale
-                
-             
-                if 0==len(log_wave):
-                    continue
+                try:
+                    runs = 1
+                    spect = spectrum[830:3200,order,fibre]
+                    mask = np.isnan(spect)
+                    spect = spect[~mask]
+                    wave = wavelength[830:3200,order,fibre][~mask].astype(np.float64)
+                    log_wave = np.log(wave)
+                    err = error[830:3200,order,fibre][~mask]
                     
-                # set error to infinity in in deep telluric
-                for wave_index, lam in enumerate(wave):
-                    for index, line in enumerate(lines):
-                        if line - widths[index] < lam and lam < line + widths[index] and depths[index] > telluric_depth_limit:
-                            err[wave_index] = np.inf
+
+
+                    med_flux[fit_index,order_index,fibre_index] = np.median(spect)
+                    
+                    mask = np.isnan(spect)
+                    scale = np.median(spect[~mask])
+                    spect /= scale
+                    err /= scale
+                    scaled_median = med_flux[fit_index,order_index,fibre_index]/scale
+                    
+                 
+                    if 0==len(log_wave):
+                        bar.next()
+                        continue
                         
-                        if abs(spect[wave_index])>3*abs(scaled_median):
-                            err[wave_index] = np.inf
-
-                
-                if np.isinf(err).all():
-                    continue            
-                initial_cond = [int_guess,1e-3,1e-3,1e-3]
-                a = optimise.least_squares(rv_fitting_eqn,x0 = initial_cond, args=(log_wave, spect, err, temp_spec, temp_lwave[0], temp_dlwave), \
-                    jac=rv_jac, method='lm')
-                if order == 130:
-                    plt.figure()
-                    plt.plot(wave,spect,label='original')
-                    plt.plot(wave,rv_fitting_eqn(a.x,log_wave, spect, err, temp_spec, temp_lwave[0], temp_dlwave, return_spec = True),label = 'fitted')
-                    plt.legend()
-                    plt.show()    
+                    for index, line in enumerate(lines):       
+                       err = np.where((line - widths[index] < wave) & (wave < line + widths[index]),-alpha*np.log(abs(spect)),err)
+                       err = np.where(spect>3*abs(scaled_median),np.inf,err)
+                        
+       
                     
-                cov = np.linalg.inv(np.dot(a.jac.T,a.jac))    
-                if a.success: 
-                    rvs[fit_index,order_index,fibre_index] = a.x[0]
-                    mse = np.mean(a.fun**2) 
-                    mses[fit_index,order_index,fibre_index] = mse
-                    rv_errs[fit_index,order_index,fibre_index] = np.sqrt(mse)*np.sqrt(cov[0,0])
+                    while runs <= total_runs:    
+                        if np.isinf(err).all():
+                            bar.next()
+                            continue                
+                        initial_cond = [int_guess,0,0,0]
+                        a = optimise.least_squares(rv_fitting_eqn,x0 = initial_cond, args=(log_wave, spect, err, temp_spec, temp_lwave[0], temp_dlwave), \
+                            jac=rv_jac, method='lm')
+                        
+                        for i,value in enumerate(a.fun):
+                            if abs(value) > residual_limit:
+                                err[i] = np.inf
+                        runs += 1
                     
-                
+                    if order == 130:
+                        plt.figure()
+                        plt.plot(wave,spect,label='original')
+                        plt.plot(wave,rv_fitting_eqn(a.x,log_wave, spect, err, temp_spec, temp_lwave[0], temp_dlwave, return_spec = True),label = 'fitted')
+                        plt.legend()
+                        plt.show()    
+                        
+                    cov = np.linalg.inv(np.dot(a.jac.T,a.jac))    
+                    if a.success: 
+                        rvs[fit_index,order_index,fibre_index] = a.x[0]
+                        mse = np.mean(a.fun**2) 
+                        mses[fit_index,order_index,fibre_index] = mse
+                        rv_errs[fit_index,order_index,fibre_index] = np.sqrt(mse)*np.sqrt(cov[0,0])
+                    bar.next()    
+                except ValueError:
+                    #print('Infinite Error - cannot fit this order')
+                    bar.next()
+                except UserWarning:
+                    #print('Wavelength outside of wavelength range - cannot fit this order')
+                    bar.next()
             weights = 1/rv_errs[fit_index,order_index,:]**2
             wtmn_rv[fit_index,order_index] = np.nansum(weights*rvs[fit_index,order_index,:])/np.nansum(weights)
             wtmn_rv_err[fit_index,order_index] = 1/np.sqrt(np.nansum(weights))
             
                 
-            print(order_index,wtmn_rv[fit_index,order_index]*1000,'+/-',wtmn_rv_err[fit_index,order_index]*1000, 'm/s')
+            #print(order_index,wtmn_rv[fit_index,order_index]*1000,'+/-',wtmn_rv_err[fit_index,order_index]*1000, 'm/s')
             
             velocity_errors[fit_index, order_index] = (wtmn_rv[fit_index,order_index]*1000 - BC_star*c.c.to(u.m/u.s).value)
-    
+        bar.finish()
         total_weights = 1/wtmn_rv_err[fit_index,:]**2
         for i,elem in enumerate(total_weights):
             if np.isinf(elem):
                 total_weights[i] = 0
         total_rv[fit_index] = np.nansum(total_weights*wtmn_rv[fit_index,:])/np.nansum(total_weights)
         total_rv_error[fit_index] = 1/np.sqrt(np.nansum(total_weights))
-        print('total', total_rv[fit_index]*1000, '+/-',total_rv_error[fit_index]*1000, 'm/s')
+        print('final velocity for observation', total_rv[fit_index]*1000, '+/-',total_rv_error[fit_index]*1000, 'm/s')
             
     final_weights = 1/total_rv_error**2
     
@@ -522,6 +648,144 @@ def obs_creation_loop(star_name):
                 if not os.path.exists('/priv/avatar/ehold13/obs_corrected/'+star_name+'/'+fit.decode('utf-8')[0:10]+'_corrected.fits'):
                     print(fit)
                     create_observation_fits('11dec30096o.fits',fit.decode('utf-8'),star[8][i].decode('utf-8'),'/priv/avatar/ehold13/obs_corrected/'+star_name+'/')
+
+def wtmn_combination(star_name):
+    all_rvs = []
+    for file_date in os.listdir('/home/ehold13/veloce_scripts/veloce_reduction/'+star_name+'/'):
+        
+        if file_date.endswith('.fits'):
+        
+            observations = pyfits.open('/home/ehold13/veloce_scripts/veloce_reduction/'+star_name+'/'+file_date)
+            
+            order_rv = np.empty((len(observations['RV'].data[:,0,0]),len(observations['RV'].data[0,:,0])))
+            order_rv_err = np.empty((len(observations['RV'].data[:,0,0]),len(observations['RV'].data[0,:,0])))
+            
+            fit_rv = np.empty(len(observations['RV'].data[:,0,0]))
+            fit_rv_err = np.empty(len(observations['RV'].data[:,0,0]))
+            
+            for obs in range(len(observations['RV'].data[:,0,0])):
+                rvs = observations['RV'].data[obs,:,:]
+                errors = observations['ERROR'].data[obs,:,:]
+
+                # combine fibres with weighted-mean
+                for order in range(len(rvs[0,:])):
+                    weights =  1/errors[order,:]**2
+                    for i,weight in enumerate(weights):
+                        if np.isinf(weight):
+                            weights[i] = 0
+                    order_rv[obs,order] = np.nansum(weights*rvs[order,:])/np.nansum(weights)
+                    order_rv_err[obs,order] = 1/np.sqrt(np.nansum(weights))
                 
+                # combine orders with weighted-mean
+                weights = 1/order_rv_err[obs,:]**2
+                for i,weight in enumerate(weights):
+                    if np.isinf(weight):
+                        weights[i] = 0
+               
+                if np.nansum(abs(weights)) <10e-16:
+                    fit_rv[obs] = np.nan
+                    fit_rv_err[obs] = np.nan
                 
+                else:
+                    fit_rv[obs] = np.nansum(weights*order_rv[obs,:])/np.nansum(weights)
+                    fit_rv_err[obs] = 1/np.sqrt(np.nansum(abs(weights)))
+                    
+                all_rvs.append((observations[4].data['MJDs'][obs],fit_rv[obs],fit_rv_err[obs]))
+                            
+            weights = 1/fit_rv_err**2
+            for i,weight in enumerate(weights):
+                    if np.isinf(abs(weight)):
+                        weights[i] = 0
+            if np.nansum(abs(weights))< 10e-16:
+                rv = np.nan
+                err = np.nan
+            else:
+                rv = np.nansum(weights*fit_rv)/np.nansum(weights)
+                err = 1/np.sqrt(np.nansum(weights))
+                
+            #all_rvs.append((np.mean(observations[4].data['MJDs']),rv,err))
+    return all_rvs
+
+def systematic_error_combination(star_name):
+    all_rvs = []
+    combination = combination_method_two()
+    for file_date in os.listdir('/home/ehold13/veloce_scripts/veloce_reduction/'+star_name+'/'):
+        
+        if file_date.endswith('.fits'):
+        
+            observations = pyfits.open('/home/ehold13/veloce_scripts/veloce_reduction/'+star_name+'/'+file_date)
+            
+            order_rv = np.empty((len(observations['RV'].data[:,0,0]),len(observations['RV'].data[0,:,0])))
+            order_rv_err = np.empty((len(observations['RV'].data[:,0,0]),len(observations['RV'].data[0,:,0])))
+            
+            fit_rv = np.empty(len(observations['RV'].data[:,0,0]))
+            fit_rv_err = np.empty(len(observations['RV'].data[:,0,0]))
+            
+            q = np.empty(len(observations['RV'].data[0,:,0]))
+            for obs in range(len(observations['RV'].data[:,0,0])):
+                rvs = observations['RV'].data[obs,:,:]
+                errors = observations['ERROR'].data[obs,:,:]
+
+                # combine fibres with weighted-mean
+                for order in range(len(rvs[0,:])):
+                    weights =  1/errors[order,:]**2
+                    for i,weight in enumerate(weights):
+                        if np.isinf(weight):
+                            weights[i] = 0
+                    order_rv[obs,order] = np.nansum(weights*rvs[order,:])/np.nansum(weights)
+                    order_rv_err[obs,order] = 1/np.sqrt(np.nansum(weights))
+                    q[order] = np.sqrt(np.nanmax([combination[order]**2 - order_rv_err[obs,order]**2,0]))
+                for i, value in enumerate(q):
+                    if value > 20:
+                        q[i] = np.inf
+                order_rv_err[obs,:] = np.sqrt(order_rv_err[obs,:]**2 + q**2)
+                    
+                # combine orders with weighted-mean
+                weights = 1/order_rv_err[obs,:]**2
+                for i,weight in enumerate(weights):
+                    if np.isinf(weight):
+                        weights[i] = 0
+               
+                if np.nansum(abs(weights)) == 0:
+                    fit_rv[obs] = np.nan
+                    fit_rv_err[obs] = np.nan
+                
+                else:
+                    fit_rv[obs] = np.nansum(weights*order_rv[obs,:])/np.nansum(weights)
+                    fit_rv_err[obs] = 1/np.sqrt(np.nansum(abs(weights)))
+                    
+                all_rvs.append((observations[4].data['MJDs'][obs],fit_rv[obs],fit_rv_err[obs]))  
+                   
+            weights = 1/fit_rv_err**2
+            for i,weight in enumerate(weights):
+                    if np.isinf(abs(weight)):
+                        weights[i] = 0
+            if np.nansum(abs(weights))==0:
+                rv = np.nan
+                err = np.nan
+            else:
+                rv = np.nansum(weights*fit_rv)/np.nansum(weights)
+                err = 1/np.sqrt(np.nansum(weights))
+                
+            #all_rvs.append((np.mean(observations[4].data['MJDs']),rv,err))
+    return all_rvs
+                
+def plot_rvs(star_name, combination = 'wtmn'):
+
+    if combination == 'wtmn':    
+        all_rvs = wtmn_combination(star_name)
+    elif combination == 'systematic':
+        all_rvs = systematic_error_combination(star_name)
+    xs = [all_rvs[i][0] for i in range(len(all_rvs))]
+    ys = [all_rvs[i][1]*1000 for i in range(len(all_rvs))]
+    yerr = [all_rvs[i][2]*1000 for i in range(len(all_rvs))]
+    
+    
+    plt.figure()
+    plt.errorbar(xs,ys,yerr = yerr,fmt='o')
+    plt.title(star_name)
+    plt.ylabel('Velocity (m/s)')
+    plt.xlabel('MJD')
+    plt.show()
+                   
             
