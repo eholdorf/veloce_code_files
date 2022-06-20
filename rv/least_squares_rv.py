@@ -18,6 +18,10 @@ from astropy.time import Time
 import time
 from progressbar import progressbar
 from progress.bar import ShadyBar
+import tkinter as tk
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from pandas import DataFrame
+
 
 def create_observation_fits(standard, obs_fits, date, save_dir, combine_fibres = False):
     # find the file path
@@ -295,11 +299,12 @@ def combination_method_two(observation_dir = '/home/ehold13/veloce_scripts/veloc
     
     # iterate over the Tau Ceti Observations
     for fit_index,fits in enumerate(os.listdir(observation_dir)):
-        if fits.endswith('.fits'): # fits in ['fits_191211.fits']:  #fits.endswith('.fits'):
+        if fits.endswith('.fits'):  # fits in ['fits_191211.fits']:  #fits.endswith('.fits'):
             observations = pyfits.open(observation_dir + fits)
             
             # now take weighted mean over the fibres to get a velocity per order for each observation
             order_rv = np.empty((len(observations['RV'].data[:,0,0]),len(observations['RV'].data[0,:,0])))
+            
             order_rv_err = np.empty((len(observations['RV'].data[:,0,0]),len(observations['RV'].data[0,:,0])))
             
             fit_rv = np.empty(len(observations['RV'].data[:,0,0]))
@@ -308,34 +313,43 @@ def combination_method_two(observation_dir = '/home/ehold13/veloce_scripts/veloc
             # for each observation on this date check to see if have low dispersion (i.e. is a good observation)
             for obs in range(len(observations['RV'].data[:,0,0])):
                 if np.std(observations['RV'].data[obs,3:,:]) < dispersion_limit:
-                    rvs = observations['RV'].data[obs,:,:]
-                    errors = observations['ERROR'].data[obs,:,:]
+                    for obs in range(len(observations['RV'].data[:,0,0])):
 
-                    # combine fibres with weighted-mean
-                    for order in range(len(rvs[0,:])):
-                        weights =  1/errors[order,:]**2
+                        rvs = observations['RV'].data[obs,:,:]
+                        errors = observations['ERROR'].data[obs,:,:]
+
+                        errors = np.where(errors<10e-16,0,errors)
+
+                        # combine fibres with weighted-mean
+                        for order in range(len(rvs[:,0])):
+                            weights =  1/errors[order,:]**2
+                            for i,weight in enumerate(weights):
+                                if np.isinf(weight):
+                                    weights[i] = 0
+                            if np.nansum(weights) == 0:
+                                order_rv[obs,order] = 0
+                                order_rv_err[obs,order] = 0
+                            else:
+                                order_rv[obs,order] = np.nansum(weights*rvs[order,:])/np.nansum(weights)
+                                order_rv_err[obs,order] = 1/np.sqrt(np.nansum(weights))
+                        
+                        order_rv_err[obs,:] = np.where(order_rv_err[obs,:]<10e-16,0,order_rv_err[obs,:])
+                        # combine orders with weighted-mean
+                        weights = 1/order_rv_err[obs,:]**2
+
                         for i,weight in enumerate(weights):
                             if np.isinf(weight):
                                 weights[i] = 0
-                        if np.nansum(weights) == 0:
-                            order_rv[obs,order] = np.nan
-                            order_rv_err[obs,order] = np.nan
-                        else:
-                            order_rv[obs,order] = np.nansum(weights*rvs[order,:])/np.nansum(weights)
-                            order_rv_err[obs,order] = 1/np.sqrt(np.nansum(weights))
-                
-                # combine orders
-                weights = 1/order_rv_err[obs,:]**2
-                for i,weight in enumerate(weights):
-                    if np.isinf(weight):
-                        weights[i] = 0
-                if np.nansum(weights) == 0:
-                    fit_rv[obs] = np.nan
-                    fit_rv_err[obs] = np.nan
-                else:
-                    fit_rv[obs] = np.nansum(weights*order_rv[obs,:])/np.nansum(weights)
-                    fit_rv_err[obs] = 1/np.sqrt(np.nansum(weights))
                        
+                        if np.nansum(abs(weights))==0:
+                            fit_rv[obs] = np.nan
+                            fit_rv_err[obs] = np.nan
+                        
+                        else:
+                            fit_rv[obs] = np.nansum(weights*order_rv[obs,:])/np.nansum(weights)
+                            fit_rv_err[obs] = 1/np.sqrt(np.nansum(abs(weights)))
+
+                               
             all_obs_rvs.extend(fit_rv)
             all_order_rvs.extend(order_rv)
 
@@ -343,12 +357,12 @@ def combination_method_two(observation_dir = '/home/ehold13/veloce_scripts/veloc
     all_order_rvs = np.array(all_order_rvs)
     
     all_obs_rvs = np.where(np.isinf(all_obs_rvs),np.nan,all_obs_rvs)
-    all_order_rvs = np.where(np.isinf(all_order_rvs),np.nan,all_order_rvs)
     
-    mean_sq_resid = np.nanmean((all_obs_rvs - np.transpose(all_order_rvs))**2,1)
+    all_order_rvs= np.where(np.isinf(all_order_rvs),np.nan,all_order_rvs)
     
-    mean_sq_resid = np.where(mean_sq_resid == 0, np.inf, mean_sq_resid)
+    mean_sq_resid = np.nanmedian((all_obs_rvs - np.transpose(all_order_rvs))**2,1)
     
+     
     return mean_sq_resid
             
     
@@ -396,13 +410,13 @@ def combination_method_three(observation_dir, dispersion_limit = 0.1):
     plt.show()
               
 
-def generate_rvs(star_name, date, template_path, int_guess = 0.1, alpha = 0.2, residual_limit = 0.5,runs = 1, total_runs = 2):   
+def generate_rvs(star_name, date, template_path, int_guess = 0.1, alpha = 0.2, residual_limit = 0.5,runs = 1, total_runs = 5):   
     
     veloce_obs = Table.read('/home/ehold13/veloce_scripts/veloce_observations.fits')
 
     # limit to the given star name and date
     stars = veloce_obs[veloce_obs['star_names']==star_name]
-
+    
     obs_index = []
 
     for j,star in enumerate(stars):
@@ -418,7 +432,7 @@ def generate_rvs(star_name, date, template_path, int_guess = 0.1, alpha = 0.2, r
     #orders = [6,7,13,14,17,25,26,27,28,30,31,33,34,35,36,37]
     rvs = np.zeros((len(files),len(orders),19))
     rv_errs = np.zeros((len(files),len(orders),19))
-    mses = np.empty((len(files),len(orders),19))
+    mses = np.zeros((len(files),len(orders),19))
     med_flux = np.zeros((len(files),len(orders),19))
 
     wtmn_rv = np.empty((len(files),len(orders)))
@@ -525,13 +539,16 @@ def generate_rvs(star_name, date, template_path, int_guess = 0.1, alpha = 0.2, r
                         plt.plot(wave,rv_fitting_eqn(a.x,log_wave, spect, err, temp_spec, temp_lwave[0], temp_dlwave, return_spec = True),label = 'fitted')
                         plt.legend()
                         plt.show()    
-                        
-                    cov = np.linalg.inv(np.dot(a.jac.T,a.jac))    
-                    if a.success: 
-                        rvs[fit_index,order_index,fibre_index] = a.x[0]
-                        mse = np.mean(a.fun**2) 
-                        mses[fit_index,order_index,fibre_index] = mse
-                        rv_errs[fit_index,order_index,fibre_index] = np.sqrt(mse)*np.sqrt(cov[0,0])
+                           
+                    if a.success:
+                        try:
+                            cov = np.linalg.inv(np.dot(a.jac.T,a.jac))  
+                            rvs[fit_index,order_index,fibre_index] = a.x[0]
+                            mse = np.mean(a.fun**2) 
+                            mses[fit_index,order_index,fibre_index] = mse
+                            rv_errs[fit_index,order_index,fibre_index] = np.sqrt(mse)*np.sqrt(cov[0,0])
+                        except:
+                            print('Singular Matrix')
                     bar.next()    
                 except ValueError:
                     #print('Infinite Error - cannot fit this order')
@@ -654,7 +671,6 @@ def wtmn_combination(star_name):
     for file_date in os.listdir('/home/ehold13/veloce_scripts/veloce_reduction/'+star_name+'/'):
         
         if file_date.endswith('.fits'):
-        
             observations = pyfits.open('/home/ehold13/veloce_scripts/veloce_reduction/'+star_name+'/'+file_date)
             
             order_rv = np.empty((len(observations['RV'].data[:,0,0]),len(observations['RV'].data[0,:,0])))
@@ -663,26 +679,37 @@ def wtmn_combination(star_name):
             fit_rv = np.empty(len(observations['RV'].data[:,0,0]))
             fit_rv_err = np.empty(len(observations['RV'].data[:,0,0]))
             
+            dispersion_date = []
+            
             for obs in range(len(observations['RV'].data[:,0,0])):
+
                 rvs = observations['RV'].data[obs,:,:]
                 errors = observations['ERROR'].data[obs,:,:]
 
+                errors = np.where(errors<10e-16,0,errors)
+
                 # combine fibres with weighted-mean
-                for order in range(len(rvs[0,:])):
+                for order in range(len(rvs[:,0])):
                     weights =  1/errors[order,:]**2
                     for i,weight in enumerate(weights):
                         if np.isinf(weight):
                             weights[i] = 0
-                    order_rv[obs,order] = np.nansum(weights*rvs[order,:])/np.nansum(weights)
-                    order_rv_err[obs,order] = 1/np.sqrt(np.nansum(weights))
+                    if np.nansum(weights) == 0:
+                        order_rv[obs,order] = 0
+                        order_rv_err[obs,order] = 0
+                    else:
+                        order_rv[obs,order] = np.nansum(weights*rvs[order,:])/np.nansum(weights)
+                        order_rv_err[obs,order] = 1/np.sqrt(np.nansum(weights))
                 
+                order_rv_err[obs,:] = np.where(order_rv_err[obs,:]<10e-16,0,order_rv_err[obs,:])
                 # combine orders with weighted-mean
                 weights = 1/order_rv_err[obs,:]**2
+
                 for i,weight in enumerate(weights):
                     if np.isinf(weight):
                         weights[i] = 0
                
-                if np.nansum(abs(weights)) <10e-16:
+                if np.nansum(abs(weights))==0:
                     fit_rv[obs] = np.nan
                     fit_rv_err[obs] = np.nan
                 
@@ -690,11 +717,16 @@ def wtmn_combination(star_name):
                     fit_rv[obs] = np.nansum(weights*order_rv[obs,:])/np.nansum(weights)
                     fit_rv_err[obs] = 1/np.sqrt(np.nansum(abs(weights)))
                     
-                all_rvs.append((observations[4].data['MJDs'][obs],fit_rv[obs],fit_rv_err[obs]))
-                            
+                dispersion_date.append((observations[4].data['MJDs'][obs],fit_rv[obs],fit_rv_err[obs]))
+            
+            disp_rvs = [dispersion_date[i][1] for i in range(len(dispersion_date))]
+            
+            if np.nanstd(disp_rvs) < 1:
+                all_rvs.extend(dispersion_date)
+                          
             weights = 1/fit_rv_err**2
             for i,weight in enumerate(weights):
-                    if np.isinf(abs(weight)):
+                    if np.isinf(abs(weight)) or weight > 10e16:
                         weights[i] = 0
             if np.nansum(abs(weights))< 10e-16:
                 rv = np.nan
@@ -702,8 +734,8 @@ def wtmn_combination(star_name):
             else:
                 rv = np.nansum(weights*fit_rv)/np.nansum(weights)
                 err = 1/np.sqrt(np.nansum(weights))
-                
-            #all_rvs.append((np.mean(observations[4].data['MJDs']),rv,err))
+            if np.nanstd(disp_rvs) < 1:  
+                all_rvs.append((np.mean(observations[4].data['MJDs']),rv,err))
     return all_rvs
 
 def systematic_error_combination(star_name):
@@ -722,40 +754,57 @@ def systematic_error_combination(star_name):
             fit_rv_err = np.empty(len(observations['RV'].data[:,0,0]))
             
             q = np.empty(len(observations['RV'].data[0,:,0]))
+            dispersion_date = []
+            
             for obs in range(len(observations['RV'].data[:,0,0])):
+
                 rvs = observations['RV'].data[obs,:,:]
                 errors = observations['ERROR'].data[obs,:,:]
 
+                errors = np.where(errors<10e-16,0,errors)
+
                 # combine fibres with weighted-mean
-                for order in range(len(rvs[0,:])):
+                for order in range(len(rvs[:,0])):
                     weights =  1/errors[order,:]**2
                     for i,weight in enumerate(weights):
                         if np.isinf(weight):
                             weights[i] = 0
-                    order_rv[obs,order] = np.nansum(weights*rvs[order,:])/np.nansum(weights)
-                    order_rv_err[obs,order] = 1/np.sqrt(np.nansum(weights))
-                    q[order] = np.sqrt(np.nanmax([combination[order]**2 - order_rv_err[obs,order]**2,0]))
+                    if np.nansum(weights) == 0:
+                        order_rv[obs,order] = 0
+                        order_rv_err[obs,order] = 0
+                    else:
+                        order_rv[obs,order] = np.nansum(weights*rvs[order,:])/np.nansum(weights)
+                        order_rv_err[obs,order] = 1/np.sqrt(np.nansum(weights))
+                        q[order] = np.sqrt(np.nanmax([combination[order]**2 - order_rv_err[obs,order]**2,0]))   
                 for i, value in enumerate(q):
-                    if value > 20:
+                    if value > 400:
                         q[i] = np.inf
                 order_rv_err[obs,:] = np.sqrt(order_rv_err[obs,:]**2 + q**2)
-                    
+                 
+                
+                order_rv_err[obs,:] = np.where(order_rv_err[obs,:]<10e-16,0,order_rv_err[obs,:])
                 # combine orders with weighted-mean
                 weights = 1/order_rv_err[obs,:]**2
+
                 for i,weight in enumerate(weights):
                     if np.isinf(weight):
                         weights[i] = 0
                
-                if np.nansum(abs(weights)) == 0:
+                if np.nansum(abs(weights))==0:
                     fit_rv[obs] = np.nan
                     fit_rv_err[obs] = np.nan
                 
                 else:
                     fit_rv[obs] = np.nansum(weights*order_rv[obs,:])/np.nansum(weights)
                     fit_rv_err[obs] = 1/np.sqrt(np.nansum(abs(weights)))
-                    
-                all_rvs.append((observations[4].data['MJDs'][obs],fit_rv[obs],fit_rv_err[obs]))  
-                   
+            
+                dispersion_date.append((observations[4].data['MJDs'][obs],fit_rv[obs],fit_rv_err[obs]))
+            
+            disp_rvs = [dispersion_date[i][1] for i in range(len(dispersion_date))]
+            
+            if np.nanstd(disp_rvs)<1:
+                all_rvs.extend(dispersion_date)  
+      
             weights = 1/fit_rv_err**2
             for i,weight in enumerate(weights):
                     if np.isinf(abs(weight)):
@@ -767,25 +816,169 @@ def systematic_error_combination(star_name):
                 rv = np.nansum(weights*fit_rv)/np.nansum(weights)
                 err = 1/np.sqrt(np.nansum(weights))
                 
-            #all_rvs.append((np.mean(observations[4].data['MJDs']),rv,err))
+            if np.nanstd(disp_rvs) < 1:     
+                all_rvs.append((np.mean(observations[4].data['MJDs']),rv,err))
+        
     return all_rvs
-                
-def plot_rvs(star_name, combination = 'wtmn'):
 
+def func(params,x,y ,yerr,period,epoch,return_fit = False):
+    
+    if return_fit:
+        return (params[0]*np.sin(2*np.pi/period*x+((epoch)%period)) +params[1])
+    else:
+        return (params[0]*np.sin(2*np.pi/period*x+(epoch%period)) +params[1] - y)/yerr
+
+def mass(v,T,M_s):
+    return (T/(2*np.pi*c.G))**(1/3) * abs(v) * M_s**(2/3)
+               
+def plot_rvs(star_name,star_mass,period,epoch, combination = 'wtmn'):
+    
+    parameters = Table.read('known_parameters.csv')
+    star_parameters = parameters[parameters['\ufeffname']==star_name][0]
+    
+    star_mass = star_parameters['star_mass']
+    star_mass_error = star_parameters['star_mass_error']
+    period = star_parameters['period']
+    period_error = star_parameters['period_error']
+    epoch = star_parameters['epoch']
+    epoch_error = star_parameters['epoch_error']
+    inclination = star_parameters['inclination']
+    inclination_error = star_parameters['inclination_error']
+    
+    
+    
     if combination == 'wtmn':    
         all_rvs = wtmn_combination(star_name)
     elif combination == 'systematic':
         all_rvs = systematic_error_combination(star_name)
-    xs = [all_rvs[i][0] for i in range(len(all_rvs))]
-    ys = [all_rvs[i][1]*1000 for i in range(len(all_rvs))]
-    yerr = [all_rvs[i][2]*1000 for i in range(len(all_rvs))]
+    
+    xs1 = [((all_rvs[i][0]-epoch)%period) for i in range(len(all_rvs))]
+    ys1 = [all_rvs[i][1]*1000 for i in range(len(all_rvs))]
+    yerr1 = [all_rvs[i][2]*1000 for i in range(len(all_rvs))]
+    
+    xs1 = np.array(xs1)
+    ys1 = np.array(ys1)
+    yerr1 = np.array(yerr1)
+    
+    xs = []
+    ys = []
+    yerr = []
+    med = np.median(ys1)
+    
+    ws = tk.Tk()
+    ws.title('Set Upper and Lower RV Bounds')
+    min_rvs = tk.IntVar(ws)
+    max_rvs = tk.IntVar(ws)
+    
+    data1 = {'MJD': xs1,
+         'RV': ys1
+        }
+        
+    df1 = DataFrame(data1,columns=['MJD','RV'])
+    figure1 = plt.Figure(figsize=(12,10), dpi=100)
+    ax1 = figure1.add_subplot(111)
+    ax1.scatter(df1['MJD'],df1['RV'], color = 'k')
+    scatter1= FigureCanvasTkAgg(figure1, ws) 
+    scatter1.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH)
+    L1 = tk.Label(ws, text="Minimum")
+    L1.pack()
+    min_rv = tk.Entry(ws)
+    min_rv.pack()
+    L2 = tk.Label(ws, text="Maximum")
+    L2.pack()
+    max_rv = tk.Entry(ws)
+    max_rv.pack()
+    
+    tk.Button(ws,text="Okay",command =lambda:[min_rvs.set(min_rv.get()),max_rvs.set(max_rv.get()),ws.destroy()]).pack()
+    ws.mainloop()
     
     
+    good_points = np.where((ys1<max_rvs.get())&(min_rvs.get()<ys1))
+  
+    xs1 = xs1[good_points]
+    ys1 = ys1[good_points]
+    yerr1 = yerr1[good_points]
+    
+    inds = xs1.argsort()
+    xs1 = xs1[inds]
+    ys1 = ys1[inds]
+    yerr1 = yerr1[inds]
+    
+    i = 0
+    rej = []
+    while i < len(ys1):
+        val = ys1[i]
+        ws = tk.Tk()
+        ws.title('Keep Point?')
+        keep = tk.BooleanVar(ws)
+        j = tk.IntVar(ws)  
+        
+        data1 = {'MJD': xs1[i:],
+         'RV': ys1[i:]
+        }
+        
+        df1 = DataFrame(data1,columns=['MJD','RV'])
+    
+    
+        data2 = {'MJD': [xs1[i]],
+         'RV': [ys1[i]]
+        }
+        
+        df2 = DataFrame(data2,columns=['MJD','RV'])
+        
+        data3 = {'MJD': xs1[:i],
+         'RV': ys1[:i]
+        }
+        
+        df3 = DataFrame(data3,columns=['MJD','RV'])
+        
+        if len(rej)!= 0:
+            data4 = {'MJD': xs1[np.array(rej)],
+             'RV': ys1[np.array(rej)]
+            }
+            
+            df4 = DataFrame(data4,columns=['MJD','RV'])
+
+        figure1 = plt.Figure(figsize=(12,10), dpi=100)
+        ax1 = figure1.add_subplot(111)
+        ax1.scatter(df1['MJD'],df1['RV'], color = 'k',label = 'To Do')
+        ax1.scatter(df3['MJD'],df3['RV'], color = 'g', label = 'Accepted',marker = '^')
+        if len(rej)!=0:
+            ax1.scatter(df4['MJD'],df4['RV'], color = 'r', marker = 'X', s = 100, label = 'Rejected')
+        ax1.scatter(df2['MJD'],df2['RV'], color = 'orange', marker = '*', s = 150, label = 'Current Point')
+        ax1.legend()
+        scatter1= FigureCanvasTkAgg(figure1, ws) 
+        scatter1.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH)
+        
+        b = tk.Button(ws,text = 'Keep', command =lambda:[keep.set(1),ws.destroy()]).pack()
+        b = tk.Button(ws,text = 'Reject', command =lambda:[keep.set(0),ws.destroy()]).pack()
+        b = tk.Button(ws,text = 'Keep Rest', command =lambda:[j.set(len(ys1)),ws.destroy()]).pack()
+        ws.mainloop()
+        if keep.get(): 
+            xs.append(xs1[i])
+            ys.append(ys1[i])
+            yerr.append(yerr1[i])
+        else:
+            rej.append(i)
+        if j.get()==len(ys1):
+            xs.extend(xs1[i:])
+            ys.extend(ys1[i:])
+            yerr.extend(yerr1[i:])
+            i = j.get()
+        i += 1
+    init_cond = [(max(ys)-min(ys))/2,np.nanmedian(ys)]
+    print(init_cond)
+    a = optimise.least_squares(func,x0 = init_cond, args=(np.array(xs),np.array(ys),np.array(yerr),period,epoch))
+
+    print(a.x)
+    print(mass(a.x[0]*u.m/u.s,period*u.day,star_mass*u.M_sun).to(u.M_earth))
+    x = np.linspace(0,period,10000)
     plt.figure()
-    plt.errorbar(xs,ys,yerr = yerr,fmt='o')
+    plt.errorbar(xs,ys,yerr= yerr,fmt='ro')
+    plt.plot(x, func(a.x,x,np.array(ys),np.array(yerr),period,epoch,return_fit = True),'k')
     plt.title(star_name)
     plt.ylabel('Velocity (m/s)')
-    plt.xlabel('MJD')
+    plt.xlabel('Phase')
     plt.show()
                    
             
