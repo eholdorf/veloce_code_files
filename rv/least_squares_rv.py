@@ -888,24 +888,24 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = []):
     yerr1 = np.array(yerr1)
     files1 = np.array(files1)
     
-    # sort the points in order of increasing time
-    inds = xs1.argsort()
-    xs1 = xs1[inds]
-    ys1 = ys1[inds]
-    yerr1 = yerr1[inds]
-    files1 = files1[inds]
-        
-    l_xs = len(xs1)
-    orig_files = files1
-    # remove the flagged points
-    if len(flagged_points) != 0:
-        xs1 = xs1[~np.array(flagged_points)]
-        ys1 = ys1[~np.array(flagged_points)]
-        yerr1 = yerr1[~np.array(flagged_points)]
-        files1 = files1[~np.array(flagged_points)]
     
-    if plot:    
-        xs = []
+    if plot: 
+        # sort the points in order of increasing time
+        inds = xs1.argsort()
+        xs1 = xs1[inds]
+        ys1 = ys1[inds]
+        yerr1 = yerr1[inds]
+        files1 = files1[inds]
+            
+        l_xs = len(xs1)
+        orig_files = files1
+        # remove the flagged points
+        if len(flagged_points) != 0:
+            xs1 = xs1[~np.array(flagged_points)]
+            ys1 = ys1[~np.array(flagged_points)]
+            yerr1 = yerr1[~np.array(flagged_points)]
+            files1 = files1[~np.array(flagged_points)]   
+            xs = []
         ys = []
         yerr = []
         files = []
@@ -1099,14 +1099,16 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = []):
         print('mean',mn/count)
         print('rms',(rms/count)**0.5)
     
-    
-    flagged = [False]*l_xs
-    
-    for point in range(l_xs):
+    if plot:
+        flagged = [False]*l_xs
         
-        if point in rej:
-            flagged[point] = True
+        for point in range(l_xs):
             
-    return flagged, np.array(orig_files)[np.array(flagged)]
-                       
+            if point in rej:
+                flagged[point] = True
+                
+        return flagged, np.array(orig_files)[np.array(flagged)]
+    else:
+        return mn/count, (rms/count)**0.5
+                           
                 
