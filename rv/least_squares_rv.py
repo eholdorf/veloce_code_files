@@ -845,7 +845,7 @@ def mass(v,T,M_s,i, v_err, T_err, M_s_err,i_err):
     m_err = m  * ((i_err/np.tan(np.deg2rad(i)))**2 + (1/3 * T_err/T)**2 + (abs(v_err)/abs(v))**2 + (2/3 * M_s_err/M_s)**2)**0.5
     return m.to(u.M_earth), m_err.to(u.M_earth)
                
-def plot_rvs(star_name, combination = 'wtmn', plot = True):
+def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = []):
     
     if plot:
         parameters = Table.read('known_parameters.csv')
@@ -887,6 +887,22 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True):
     ys1 = np.array(ys1)
     yerr1 = np.array(yerr1)
     files1 = np.array(files1)
+    
+    # sort the points in order of increasing time
+    inds = xs1.argsort()
+    xs1 = xs1[inds]
+    ys1 = ys1[inds]
+    yerr1 = yerr1[inds]
+    files1 = files1[inds]
+        
+    l_xs = len(xs1)
+    orig_files = files1
+    # remove the flagged points
+    if len(flagged_points) != 0:
+        xs1 = xs1[~np.array(flagged_points)]
+        ys1 = ys1[~np.array(flagged_points)]
+        yerr1 = yerr1[~np.array(flagged_points)]
+        files1 = files1[~np.array(flagged_points)]
     
     if plot:    
         xs = []
@@ -930,11 +946,6 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True):
         yerr1 = yerr1[good_points]
         files1 = files1[good_points]
         
-        inds = xs1.argsort()
-        xs1 = xs1[inds]
-        ys1 = ys1[inds]
-        yerr1 = yerr1[inds]
-        files1 = files1[inds]
         
         i = 0
         rej = []
@@ -976,7 +987,7 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True):
             ax1.scatter(df1['MJD'],df1['RV'], color = 'k',label = 'To Do')
             ax1.scatter(df3['MJD'],df3['RV'], color = 'g', label = 'Accepted',marker = '^')
             if len(rej)!=0:
-                ax1.scatter(df4['MJD'],df4['RV'], color = 'r', marker = 'X', s = 100, label = 'Rejected')
+                ax1.scatter(df4['MJD'],df4['RV'], color = 'r', marker = 'X', s = 100, label = 'Flagged')
             ax1.scatter(df2['MJD'],df2['RV'], color = 'orange', marker = '*', s = 150, label = 'Current Point')
             ax1.legend()
             scatter1= FigureCanvasTkAgg(figure1, ws) 
@@ -988,7 +999,14 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True):
             b = tk.Button(ws,text = 'Keep Rest', command =lambda:[j.set(len(ys1)),ws.destroy()]).pack()
             text = tk.Text(ws)
            
-            log = glob.glob('/priv/avatar/velocedata/Data/Raw/'+str(files1[i][1])+'/ccd_3/[0-9,A-Z,a-z,_,-]*.log')[0]
+            logs = np.array(glob.glob('/priv/avatar/velocedata/Data/Raw/'+str(files1[i][1])+'/ccd_3/[0-9,A-Z,a-z,_,-]*.log')).flatten()
+            log = ''
+            for l in logs:
+                if 'vid.log' not in l:
+                    log = l
+            if log == '':
+                log = logs[0]
+                
             f = open(log,'r')
             log = f.readlines()
             text.insert(tk.INSERT, log)  
@@ -1002,6 +1020,10 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True):
                 files.append(files1[i])
             else:
                 rej.append(i)
+                xs.append(xs1[i])
+                ys.append(ys1[i])
+                yerr.append(yerr1[i])
+                files.append(files1[i])
             if j.get()==len(ys1):
                 xs.extend(xs1[i:])
                 ys.extend(ys1[i:])
@@ -1076,5 +1098,15 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True):
         plt.show()
         print('mean',mn/count)
         print('rms',(rms/count)**0.5)
+    
+    
+    flagged = [False]*l_xs
+    
+    for point in range(l_xs):
+        
+        if point in rej:
+            flagged[point] = True
+            
+    return flagged, np.array(orig_files)[np.array(flagged)]
                        
                 
