@@ -21,6 +21,7 @@ from progress.bar import ShadyBar
 import tkinter as tk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from pandas import DataFrame
+import glob
 
 
 def create_observation_fits(standard, obs_fits, date, save_dir, combine_fibres = False):
@@ -668,6 +669,7 @@ def obs_creation_loop(star_name):
 
 def wtmn_combination(star_name):
     all_rvs = []
+    day_rvs = []
     for file_date in os.listdir('/home/ehold13/veloce_scripts/veloce_reduction/'+star_name+'/'):
         
         if file_date.endswith('.fits'):
@@ -717,7 +719,7 @@ def wtmn_combination(star_name):
                     fit_rv[obs] = np.nansum(weights*order_rv[obs,:])/np.nansum(weights)
                     fit_rv_err[obs] = 1/np.sqrt(np.nansum(abs(weights)))
                     
-                dispersion_date.append((observations[4].data['MJDs'][obs],fit_rv[obs],fit_rv_err[obs]))
+                dispersion_date.append((observations[4].data['MJDs'][obs],fit_rv[obs],fit_rv_err[obs],(observations[4].data['Files'][obs],file_date[5:11])))
             
             disp_rvs = [dispersion_date[i][1] for i in range(len(dispersion_date))]
             
@@ -729,23 +731,26 @@ def wtmn_combination(star_name):
                     if np.isinf(abs(weight)) or weight > 10e16:
                         weights[i] = 0
             if np.nansum(abs(weights))< 10e-16:
-                rv = np.nan
-                err = np.nan
+               rv = np.nan
+               err = np.nan
             else:
                 rv = np.nansum(weights*fit_rv)/np.nansum(weights)
                 err = 1/np.sqrt(np.nansum(weights))
             if np.nanstd(disp_rvs) < 1:  
-                all_rvs.append((np.mean(observations[4].data['MJDs']),rv,err))
-    return all_rvs
+                #day_rvs.append((np.mean(observations[4].data['MJDs']),rv,err))
+                day_rvs.append(dispersion_date)
+    return all_rvs, day_rvs
 
 def systematic_error_combination(star_name):
     all_rvs = []
+    day_rvs = []
     combination = combination_method_two()
     for file_date in os.listdir('/home/ehold13/veloce_scripts/veloce_reduction/'+star_name+'/'):
         
         if file_date.endswith('.fits'):
         
             observations = pyfits.open('/home/ehold13/veloce_scripts/veloce_reduction/'+star_name+'/'+file_date)
+            
             
             order_rv = np.empty((len(observations['RV'].data[:,0,0]),len(observations['RV'].data[0,:,0])))
             order_rv_err = np.empty((len(observations['RV'].data[:,0,0]),len(observations['RV'].data[0,:,0])))
@@ -797,14 +802,20 @@ def systematic_error_combination(star_name):
                 else:
                     fit_rv[obs] = np.nansum(weights*order_rv[obs,:])/np.nansum(weights)
                     fit_rv_err[obs] = 1/np.sqrt(np.nansum(abs(weights)))
-            
-                dispersion_date.append((observations[4].data['MJDs'][obs],fit_rv[obs],fit_rv_err[obs]))
+                
+                dispersion_date.append((observations[4].data['MJDs'][obs],fit_rv[obs],fit_rv_err[obs], (observations[4].data['Files'][obs],file_date[5:11])))
             
             disp_rvs = [dispersion_date[i][1] for i in range(len(dispersion_date))]
             
             if np.nanstd(disp_rvs)<1:
                 all_rvs.extend(dispersion_date)  
-      
+            else:
+                std = np.std(disp_rvs)
+                med = np.median(disp_rvs)
+                for i,elem in enumerate(disp_rvs):
+                    if elem > abs(med)+std:
+                       del dispersion_date[i]
+                all_rvs.extend(dispersion_date) 
             weights = 1/fit_rv_err**2
             for i,weight in enumerate(weights):
                     if np.isinf(abs(weight)):
@@ -815,11 +826,12 @@ def systematic_error_combination(star_name):
             else:
                 rv = np.nansum(weights*fit_rv)/np.nansum(weights)
                 err = 1/np.sqrt(np.nansum(weights))
-                
-            if np.nanstd(disp_rvs) < 1:     
-                all_rvs.append((np.mean(observations[4].data['MJDs']),rv,err))
+            
+            if True: #np.nanstd(disp_rvs) < 1:     
+                #day_rvs.append((np.mean(observations[4].data['MJDs']),rv,err))
+                day_rvs.append(dispersion_date)
         
-    return all_rvs
+    return all_rvs, day_rvs
 
 def func(params,x,y ,yerr,period,epoch,return_fit = False):
     
@@ -828,157 +840,241 @@ def func(params,x,y ,yerr,period,epoch,return_fit = False):
     else:
         return (params[0]*np.sin(2*np.pi/period*x+(epoch%period)) +params[1] - y)/yerr
 
-def mass(v,T,M_s):
-    return (T/(2*np.pi*c.G))**(1/3) * abs(v) * M_s**(2/3)
+def mass(v,T,M_s,i, v_err, T_err, M_s_err,i_err):
+    m = ((T/(2*np.pi*c.G))**(1/3) * abs(v) * M_s**(2/3))/np.sin(np.deg2rad(i))
+    m_err = m  * ((i_err/np.tan(np.deg2rad(i)))**2 + (1/3 * T_err/T)**2 + (abs(v_err)/abs(v))**2 + (2/3 * M_s_err/M_s)**2)**0.5
+    return m.to(u.M_earth), m_err.to(u.M_earth)
                
-def plot_rvs(star_name,star_mass,period,epoch, combination = 'wtmn'):
+def plot_rvs(star_name, combination = 'wtmn', plot = True):
     
-    parameters = Table.read('known_parameters.csv')
-    star_parameters = parameters[parameters['\ufeffname']==star_name][0]
-    
-    star_mass = star_parameters['star_mass']
-    star_mass_error = star_parameters['star_mass_error']
-    period = star_parameters['period']
-    period_error = star_parameters['period_error']
-    epoch = star_parameters['epoch']
-    epoch_error = star_parameters['epoch_error']
-    inclination = star_parameters['inclination']
-    inclination_error = star_parameters['inclination_error']
-    
+    if plot:
+        parameters = Table.read('known_parameters.csv')
+        star_parameters = parameters[parameters['\ufeffname']==star_name][0]
+        
+        star_mass = star_parameters['star_mass']
+        star_mass_error = star_parameters['star_mass_error']
+        period = star_parameters['period']
+        period_error = star_parameters['period_error']
+        epoch = star_parameters['epoch']
+        epoch_error = star_parameters['epoch_error']
+        inclination = star_parameters['inclination']
+        inclination_error = star_parameters['inclination_error']
+        
     
     
     if combination == 'wtmn':    
-        all_rvs = wtmn_combination(star_name)
+        all_rvs, day_rvs = wtmn_combination(star_name)
+        if plot:
+            xs1 = [((all_rvs[i][0]-epoch)%period) for i in range(len(all_rvs))]
+        else:
+            xs1 = [all_rvs[i][0] for i in range(len(all_rvs))]
+        ys1 = [all_rvs[i][1]*1000 for i in range(len(all_rvs))]
+        yerr1 = [all_rvs[i][2]*1000 for i in range(len(all_rvs))]
+        files1 = [all_rvs[i][3] for i in range(len(all_rvs))]
+        
     elif combination == 'systematic':
-        all_rvs = systematic_error_combination(star_name)
-    
-    xs1 = [((all_rvs[i][0]-epoch)%period) for i in range(len(all_rvs))]
-    ys1 = [all_rvs[i][1]*1000 for i in range(len(all_rvs))]
-    yerr1 = [all_rvs[i][2]*1000 for i in range(len(all_rvs))]
-    
+        all_rvs, day_rvs = systematic_error_combination(star_name)
+        if plot:
+            xs1 = [((all_rvs[i][0]-epoch)%period) for i in range(len(all_rvs))]
+        else:
+            xs1 = [all_rvs[i][0] for i in range(len(all_rvs))]
+        
+        ys1 = [all_rvs[i][1]*1000 for i in range(len(all_rvs))]
+        yerr1 = [all_rvs[i][2]*1000 for i in range(len(all_rvs))]
+        files1 = [all_rvs[i][3] for i in range(len(all_rvs))]
+        
     xs1 = np.array(xs1)
     ys1 = np.array(ys1)
     yerr1 = np.array(yerr1)
+    files1 = np.array(files1)
     
-    xs = []
-    ys = []
-    yerr = []
-    med = np.median(ys1)
-    
-    ws = tk.Tk()
-    ws.title('Set Upper and Lower RV Bounds')
-    min_rvs = tk.IntVar(ws)
-    max_rvs = tk.IntVar(ws)
-    
-    data1 = {'MJD': xs1,
-         'RV': ys1
-        }
+    if plot:    
+        xs = []
+        ys = []
+        yerr = []
+        files = []
+        med = np.median(ys1)
         
-    df1 = DataFrame(data1,columns=['MJD','RV'])
-    figure1 = plt.Figure(figsize=(12,10), dpi=100)
-    ax1 = figure1.add_subplot(111)
-    ax1.scatter(df1['MJD'],df1['RV'], color = 'k')
-    scatter1= FigureCanvasTkAgg(figure1, ws) 
-    scatter1.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH)
-    L1 = tk.Label(ws, text="Minimum")
-    L1.pack()
-    min_rv = tk.Entry(ws)
-    min_rv.pack()
-    L2 = tk.Label(ws, text="Maximum")
-    L2.pack()
-    max_rv = tk.Entry(ws)
-    max_rv.pack()
-    
-    tk.Button(ws,text="Okay",command =lambda:[min_rvs.set(min_rv.get()),max_rvs.set(max_rv.get()),ws.destroy()]).pack()
-    ws.mainloop()
-    
-    
-    good_points = np.where((ys1<max_rvs.get())&(min_rvs.get()<ys1))
-  
-    xs1 = xs1[good_points]
-    ys1 = ys1[good_points]
-    yerr1 = yerr1[good_points]
-    
-    inds = xs1.argsort()
-    xs1 = xs1[inds]
-    ys1 = ys1[inds]
-    yerr1 = yerr1[inds]
-    
-    i = 0
-    rej = []
-    while i < len(ys1):
-        val = ys1[i]
         ws = tk.Tk()
-        ws.title('Keep Point?')
-        keep = tk.BooleanVar(ws)
-        j = tk.IntVar(ws)  
+        ws.title('Set Upper and Lower RV Bounds')
+        min_rvs = tk.IntVar(ws)
+        max_rvs = tk.IntVar(ws)
         
-        data1 = {'MJD': xs1[i:],
-         'RV': ys1[i:]
-        }
-        
-        df1 = DataFrame(data1,columns=['MJD','RV'])
-    
-    
-        data2 = {'MJD': [xs1[i]],
-         'RV': [ys1[i]]
-        }
-        
-        df2 = DataFrame(data2,columns=['MJD','RV'])
-        
-        data3 = {'MJD': xs1[:i],
-         'RV': ys1[:i]
-        }
-        
-        df3 = DataFrame(data3,columns=['MJD','RV'])
-        
-        if len(rej)!= 0:
-            data4 = {'MJD': xs1[np.array(rej)],
-             'RV': ys1[np.array(rej)]
+        data1 = {'MJD': xs1,
+             'RV': ys1
             }
             
-            df4 = DataFrame(data4,columns=['MJD','RV'])
-
+        df1 = DataFrame(data1,columns=['MJD','RV'])
         figure1 = plt.Figure(figsize=(12,10), dpi=100)
         ax1 = figure1.add_subplot(111)
-        ax1.scatter(df1['MJD'],df1['RV'], color = 'k',label = 'To Do')
-        ax1.scatter(df3['MJD'],df3['RV'], color = 'g', label = 'Accepted',marker = '^')
-        if len(rej)!=0:
-            ax1.scatter(df4['MJD'],df4['RV'], color = 'r', marker = 'X', s = 100, label = 'Rejected')
-        ax1.scatter(df2['MJD'],df2['RV'], color = 'orange', marker = '*', s = 150, label = 'Current Point')
-        ax1.legend()
+        ax1.scatter(df1['MJD'],df1['RV'], color = 'k')
         scatter1= FigureCanvasTkAgg(figure1, ws) 
         scatter1.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH)
+        L1 = tk.Label(ws, text="Minimum")
+        L1.pack()
+        min_rv = tk.Entry(ws)
+        min_rv.pack()
+        L2 = tk.Label(ws, text="Maximum")
+        L2.pack()
+        max_rv = tk.Entry(ws)
+        max_rv.pack()
         
-        b = tk.Button(ws,text = 'Keep', command =lambda:[keep.set(1),ws.destroy()]).pack()
-        b = tk.Button(ws,text = 'Reject', command =lambda:[keep.set(0),ws.destroy()]).pack()
-        b = tk.Button(ws,text = 'Keep Rest', command =lambda:[j.set(len(ys1)),ws.destroy()]).pack()
+        tk.Button(ws,text="Okay",command =lambda:[min_rvs.set(min_rv.get()),max_rvs.set(max_rv.get()),ws.destroy()]).pack()
         ws.mainloop()
-        if keep.get(): 
-            xs.append(xs1[i])
-            ys.append(ys1[i])
-            yerr.append(yerr1[i])
-        else:
-            rej.append(i)
-        if j.get()==len(ys1):
-            xs.extend(xs1[i:])
-            ys.extend(ys1[i:])
-            yerr.extend(yerr1[i:])
-            i = j.get()
-        i += 1
-    init_cond = [(max(ys)-min(ys))/2,np.nanmedian(ys)]
-    print(init_cond)
-    a = optimise.least_squares(func,x0 = init_cond, args=(np.array(xs),np.array(ys),np.array(yerr),period,epoch))
+        
+        
+        good_points = np.where((ys1<max_rvs.get())&(min_rvs.get()<ys1))
+      
+        xs1 = xs1[good_points]
+        ys1 = ys1[good_points]
+        yerr1 = yerr1[good_points]
+        files1 = files1[good_points]
+        
+        inds = xs1.argsort()
+        xs1 = xs1[inds]
+        ys1 = ys1[inds]
+        yerr1 = yerr1[inds]
+        files1 = files1[inds]
+        
+        i = 0
+        rej = []
+        while i < len(ys1):
+            val = ys1[i]
+            ws = tk.Tk()
+            ws.title('Keep Point?')
+            keep = tk.BooleanVar(ws)
+            j = tk.IntVar(ws)  
+            
+            data1 = {'MJD': xs1[i:],
+             'RV': ys1[i:]
+            }
+            
+            df1 = DataFrame(data1,columns=['MJD','RV'])
+        
+        
+            data2 = {'MJD': [xs1[i]],
+             'RV': [ys1[i]]
+            }
+            
+            df2 = DataFrame(data2,columns=['MJD','RV'])
+            
+            data3 = {'MJD': xs1[:i],
+             'RV': ys1[:i]
+            }
+            
+            df3 = DataFrame(data3,columns=['MJD','RV'])
+            
+            if len(rej)!= 0:
+                data4 = {'MJD': xs1[np.array(rej)],
+                 'RV': ys1[np.array(rej)]
+                }
+                
+                df4 = DataFrame(data4,columns=['MJD','RV'])
 
-    print(a.x)
-    print(mass(a.x[0]*u.m/u.s,period*u.day,star_mass*u.M_sun).to(u.M_earth))
-    x = np.linspace(0,period,10000)
+            figure1 = plt.Figure(figsize=(9,8), dpi=100)
+            ax1 = figure1.add_subplot(111)
+            ax1.scatter(df1['MJD'],df1['RV'], color = 'k',label = 'To Do')
+            ax1.scatter(df3['MJD'],df3['RV'], color = 'g', label = 'Accepted',marker = '^')
+            if len(rej)!=0:
+                ax1.scatter(df4['MJD'],df4['RV'], color = 'r', marker = 'X', s = 100, label = 'Rejected')
+            ax1.scatter(df2['MJD'],df2['RV'], color = 'orange', marker = '*', s = 150, label = 'Current Point')
+            ax1.legend()
+            scatter1= FigureCanvasTkAgg(figure1, ws) 
+            scatter1.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH)
+            
+            b = tk.Button(ws,text = 'Keep', command =lambda:[keep.set(1),ws.destroy()]).pack()
+            #b = tk.Button(ws,text = 'Reject', command =lambda:[keep.set(0),ws.destroy()]).pack()
+            b = tk.Button(ws, text = 'Flag', command =lambda:[keep.set(0),ws.destroy()]).pack()
+            b = tk.Button(ws,text = 'Keep Rest', command =lambda:[j.set(len(ys1)),ws.destroy()]).pack()
+            text = tk.Text(ws)
+           
+            log = glob.glob('/priv/avatar/velocedata/Data/Raw/'+str(files1[i][1])+'/ccd_3/[0-9,A-Z,a-z,_,-]*.log')[0]
+            f = open(log,'r')
+            log = f.readlines()
+            text.insert(tk.INSERT, log)  
+            text.pack()
+            f.close()
+            ws.mainloop()
+            if keep.get(): 
+                xs.append(xs1[i])
+                ys.append(ys1[i])
+                yerr.append(yerr1[i])
+                files.append(files1[i])
+            else:
+                rej.append(i)
+            if j.get()==len(ys1):
+                xs.extend(xs1[i:])
+                ys.extend(ys1[i:])
+                yerr.extend(yerr1[i:])
+                files.extend(files1[i:])
+                i = j.get()
+            i += 1
+        init_cond = [(max(ys)-min(ys))/2,np.nanmedian(ys)]
+        print(init_cond)
+        a = optimise.least_squares(func,x0 = init_cond, args=(np.array(xs),np.array(ys),np.array(yerr),period,epoch))
+        
+        if a.success:
+            try:
+                cov = np.linalg.inv(np.dot(a.jac.T,a.jac))  
+                mse = np.mean(a.fun**2) 
+                v_error = np.sqrt(mse)*np.sqrt(cov[0,0])
+            except:
+                print('Singular Matrix')
+                v_error = 0
+                
+        print(a.x)
+        m, m_err = mass(a.x[0]*u.m/u.s,period*u.day,star_mass*u.M_sun, inclination, v_error*u.m/u.s, period_error*u.day, star_mass_error*u.M_sun, inclination_error)
+        print('Mass (Earth Masses): ', m, ' +/-', m_err)
+        x = np.linspace(0,period,10000)
+    
+    else:
+        xs = xs1
+        ys = ys1
+        yerr = yerr1
     plt.figure()
     plt.errorbar(xs,ys,yerr= yerr,fmt='ro')
-    plt.plot(x, func(a.x,x,np.array(ys),np.array(yerr),period,epoch,return_fit = True),'k')
+    if plot:
+        plt.plot(x, func(a.x,x,np.array(ys),np.array(yerr),period,epoch,return_fit = True),'k')
     plt.title(star_name)
     plt.ylabel('Velocity (m/s)')
     plt.xlabel('Phase')
     plt.show()
-                   
-            
+    
+    if not plot:
+        mnrvs = []
+        times = []
+        for elem in day_rvs:
+            dates = [elem[i][0] for i in range(len(elem))]
+            vels = [elem[i][1]*1000 for i in range(len(elem))]
+            velerrs = [elem[i][2]*1000 for i in range(len(elem))]
+            vels = np.array(vels)
+            velerrs = np.array(velerrs)
+            times.extend(Time(dates, format='mjd').to_datetime())
+            w = 1/velerrs**2
+            for i, weight in enumerate(w):
+                if np.isinf(abs(weight)):
+                            weights[i] = 0
+            if np.nansum(abs(w))==0:
+                mnrvs.extend([np.nan]*len(elem))
+            else:
+                mnrvs.extend([np.nansum(w*vels)/np.nansum(w)]*len(elem))
+
+        
+        mn = 0
+        rms = 0
+        count = 0
+        plt.figure()
+        for i in range(len(yerr)):
+            if abs(np.array(ys[i]) - np.array(mnrvs)[i]) + yerr[i] < 15:
+                mn += ys[i] - mnrvs[i]
+                rms += (ys[i] - mnrvs[i])**2
+                count += 1
+                plt.errorbar(times[i], ys[i] - mnrvs[i],yerr = yerr[i],fmt = 'k.',capsize=5)
+        plt.ylabel('Barycentric Velocity Error (m/s)')
+        plt.xlabel('Date')
+        plt.tight_layout()
+        plt.show()
+        print('mean',mn/count)
+        print('rms',(rms/count)**0.5)
+                       
+                
