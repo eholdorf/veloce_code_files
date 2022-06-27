@@ -509,8 +509,10 @@ def telluric_correction(obs_night, time, date, scrunch = True, B_plus = None, ai
         
     # apply an airmass correction
     if airmass_corr:
-        error_spec *= (airmass_star[1]/airmass_telluric[1]) /telluric_spec  
+        error_spec *= (airmass_star[1]/airmass_telluric[1]) /telluric_spec 
+        
         telluric_spec = telluric_spec**((airmass_star[1]/airmass_telluric[1]))
+        
         error_spec *= telluric_spec
     
     B_plus_saved = None               

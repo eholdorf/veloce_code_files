@@ -65,18 +65,20 @@ def correct_bad(in_spect, bad_mask, Bplus=None, max_ftpix = 64):
 
     return ext_spect[:len(in_spect)] + offset, Bplus
     
-def voigt_like_profile(params, sz=64, subsamp=4):
+def voigt_like_profile(params,u, sz=64, subsamp=4):
     """
     Return a Voigt-like profile, where instead of simply using a Gaussian, we use a 
     polynomial series multiplied by the Gaussian, which forms a complete basis for 
     square integral functions. Additionally, we convolve with a pixel of width=subsamp.
     """
+    
     gamma = params[0]
     sigma = params[1]
     poly = params[2:]
     
     #Spatial frequency in cycles per pixel
     u = np.arange(sz//2 + 1)/sz * subsamp
+    
     
     # We multiply the Fourier transforms of a Rectangle, Gaussian and Cauchy distribution
     # together:
@@ -113,7 +115,7 @@ for i in range(MIN_ORDER,103):
     lcoffset_lis += [[lcoffset['MJD'][ww].data, lcoffset['offset'][ww].data]]
 
     
-def correct_lc_rv_chris(mjd, min_order=67, max_order=102, return_all=False):
+def correct_lc_rv_chris(mjd, min_order=67, max_order=102, return_all=False): 
     """Based on Chris Tinney's computations, compute the corrections as a
     function of order"""
     if min_order < MIN_ORDER:
