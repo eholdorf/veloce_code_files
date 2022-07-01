@@ -847,10 +847,11 @@ def mass(v,T,M_s,i, v_err, T_err, M_s_err,i_err):
                
 def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = []):
     
+    # if want to plot and find the mass, then star parameters should be in the known_parameters.csv file, so read them in
     if plot:
         parameters = Table.read('known_parameters.csv')
         star_parameters = parameters[parameters['\ufeffname']==star_name][0]
-        
+    
         star_mass = star_parameters['star_mass']
         star_mass_error = star_parameters['star_mass_error']
         period = star_parameters['period']
@@ -861,7 +862,7 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = []):
         inclination_error = star_parameters['inclination_error']
         
     
-    
+    # combine the order and fibre rvs depending on what the chosen combination method is
     if combination == 'wtmn':    
         all_rvs, day_rvs = wtmn_combination(star_name)
         if plot:
@@ -887,7 +888,7 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = []):
     ys1 = np.array(ys1)
     yerr1 = np.array(yerr1)
     files1 = np.array(files1)
-    
+
     
     if plot: 
         # sort the points in order of increasing time
@@ -901,11 +902,16 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = []):
         orig_files = files1
         # remove the flagged points
         if len(flagged_points) != 0:
-            xs1 = xs1[~np.array(flagged_points)]
-            ys1 = ys1[~np.array(flagged_points)]
-            yerr1 = yerr1[~np.array(flagged_points)]
-            files1 = files1[~np.array(flagged_points)]   
-            xs = []
+            xs2 = xs1[~np.array(flagged_points)]
+            ys2 = ys1[~np.array(flagged_points)]
+            yerr2 = yerr1[~np.array(flagged_points)]
+            files2 = files1[~np.array(flagged_points)]   
+        else:
+            xs2 = xs1
+            ys2 = ys1
+            yerr2 = yerr1
+            files2 = files1
+        xs = []
         ys = []
         yerr = []
         files = []
@@ -916,8 +922,8 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = []):
         min_rvs = tk.IntVar(ws)
         max_rvs = tk.IntVar(ws)
         
-        data1 = {'MJD': xs1,
-             'RV': ys1
+        data1 = {'MJD': xs2,
+             'RV': ys2
             }
             
         df1 = DataFrame(data1,columns=['MJD','RV'])
@@ -939,38 +945,36 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = []):
         ws.mainloop()
         
         
-        good_points = np.where((ys1<max_rvs.get())&(min_rvs.get()<ys1))
-      
-        xs1 = xs1[good_points]
-        ys1 = ys1[good_points]
-        yerr1 = yerr1[good_points]
-        files1 = files1[good_points]
-        
+        #good_points = np.where((ys1<max_rvs.get())&(min_rvs.get()<ys1))
+        rej = []
+        bad = np.where((ys1>max_rvs.get())|(min_rvs.get()>ys1))
+        rej.extend(bad[0])
         
         i = 0
-        rej = []
-        while i < len(ys1):
+        
+        while i < len(ys2):
+            k = np.where(abs(ys1-ys2[i])<1e-10)[0][0]
             val = ys1[i]
             ws = tk.Tk()
             ws.title('Keep Point?')
             keep = tk.BooleanVar(ws)
             j = tk.IntVar(ws)  
             
-            data1 = {'MJD': xs1[i:],
-             'RV': ys1[i:]
+            data1 = {'MJD': xs2[i:],
+             'RV': ys2[i:]
             }
             
             df1 = DataFrame(data1,columns=['MJD','RV'])
         
         
-            data2 = {'MJD': [xs1[i]],
-             'RV': [ys1[i]]
+            data2 = {'MJD': [xs2[i]],
+             'RV': [ys2[i]]
             }
             
             df2 = DataFrame(data2,columns=['MJD','RV'])
             
-            data3 = {'MJD': xs1[:i],
-             'RV': ys1[:i]
+            data3 = {'MJD': xs2[:i],
+             'RV': ys2[:i]
             }
             
             df3 = DataFrame(data3,columns=['MJD','RV'])
@@ -982,7 +986,7 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = []):
                 
                 df4 = DataFrame(data4,columns=['MJD','RV'])
 
-            figure1 = plt.Figure(figsize=(9,8), dpi=100)
+            figure1 = plt.Figure(figsize=(8,8), dpi=100)
             ax1 = figure1.add_subplot(111)
             ax1.scatter(df1['MJD'],df1['RV'], color = 'k',label = 'To Do')
             ax1.scatter(df3['MJD'],df3['RV'], color = 'g', label = 'Accepted',marker = '^')
@@ -996,10 +1000,10 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = []):
             b = tk.Button(ws,text = 'Keep', command =lambda:[keep.set(1),ws.destroy()]).pack()
             #b = tk.Button(ws,text = 'Reject', command =lambda:[keep.set(0),ws.destroy()]).pack()
             b = tk.Button(ws, text = 'Flag', command =lambda:[keep.set(0),ws.destroy()]).pack()
-            b = tk.Button(ws,text = 'Keep Rest', command =lambda:[j.set(len(ys1)),ws.destroy()]).pack()
+            b = tk.Button(ws,text = 'Keep Rest', command =lambda:[j.set(len(ys2)),ws.destroy()]).pack()
             text = tk.Text(ws)
            
-            logs = np.array(glob.glob('/priv/avatar/velocedata/Data/Raw/'+str(files1[i][1])+'/ccd_3/[0-9,A-Z,a-z,_,-]*.log')).flatten()
+            logs = np.array(glob.glob('/priv/avatar/velocedata/Data/Raw/'+str(files2[i][1])+'/ccd_3/[0-9,A-Z,a-z,_,-]*.log')).flatten()
             log = ''
             for l in logs:
                 if 'vid.log' not in l:
@@ -1012,27 +1016,63 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = []):
             text.insert(tk.INSERT, log)  
             text.pack()
             f.close()
+            #print(files)
             ws.mainloop()
             if keep.get(): 
-                xs.append(xs1[i])
-                ys.append(ys1[i])
-                yerr.append(yerr1[i])
-                files.append(files1[i])
+                xs.append(xs2[i])
+                ys.append(ys2[i])
+                yerr.append(yerr2[i])
+                files.append(files2[i])
             else:
-                rej.append(i)
-                xs.append(xs1[i])
-                ys.append(ys1[i])
-                yerr.append(yerr1[i])
-                files.append(files1[i])
-            if j.get()==len(ys1):
-                xs.extend(xs1[i:])
-                ys.extend(ys1[i:])
-                yerr.extend(yerr1[i:])
-                files.extend(files1[i:])
+                rej.append(k)
+                xs.append(xs2[i])
+                ys.append(ys2[i])
+                yerr.append(yerr2[i])
+                files.append(files2[i])
+                
+            if j.get()==len(ys2):
+                xs.extend(xs2[i+1:])
+                ys.extend(ys2[i+1:])
+                yerr.extend(yerr2[i+1:])
+                files.extend(files2[i+1:])
                 i = j.get()
             i += 1
+
+        #mnrvs = []
+        #for elem in day_rvs:
+        #    vels = [elem[i][1]*1000 for i in range(len(elem))]
+        #    vels = np.array(vels)
+        #    velerrs = [elem[i][2]*1000 for i in range(len(elem))]
+        #    velerrs = np.array(velerrs)
+        
+            
+        #    w = 1/velerrs**2
+        #    for i, weight in enumerate(w):
+        #        if np.isinf(abs(weight)):
+        #                    weights[i] = 0
+        #    if np.nansum(abs(w))==0:
+        #        mnrvs.extend([np.nan]*len(elem))
+        #    else:
+        #        mnrvs.extend([np.nansum(w*vels)/np.nansum(w)]*len(elem))
+        #        print(len(elem))
+        
+
+     
+        #ys = np.array(ys)
+        #mnrvs = np.array(mnrvs)
+
+        #mnrvs = mnrvs[inds]
+        #print(flagged_points)
+        #print(ys)
+        #print(mnrvs)
+        #if len(ys)!=len(mnrvs) and len(flagged_points) != 0:  
+        #    mnrvs = mnrvs[~np.array(flagged_points)] 
+        #print(mnrvs)     
+        #ys -= mnrvs
         init_cond = [(max(ys)-min(ys))/2,np.nanmedian(ys)]
         print(init_cond)
+        
+        
         a = optimise.least_squares(func,x0 = init_cond, args=(np.array(xs),np.array(ys),np.array(yerr),period,epoch))
         
         if a.success:
@@ -1062,6 +1102,7 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = []):
     plt.xlabel('Phase')
     plt.show()
     
+    # if not plotting, than looking at the mean and rms velocities
     if not plot:
         mnrvs = []
         times = []
@@ -1100,8 +1141,10 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = []):
         print('rms',(rms/count)**0.5)
     
     if plot:
-        flagged = [False]*l_xs
-        
+        if len(flagged_points)==0:
+            flagged = [False]*l_xs
+        else:
+            flagged = flagged_points
         for point in range(l_xs):
             
             if point in rej:
