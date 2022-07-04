@@ -1094,10 +1094,10 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = []):
         ys = ys1
         yerr = yerr1
     plt.figure()
-    plt.errorbar(xs,ys,yerr= yerr,fmt='ro')
+    plt.errorbar(xs/period,ys,yerr= yerr,fmt='ro')
     if plot:
-        plt.plot(x, func(a.x,x,np.array(ys),np.array(yerr),period,epoch,return_fit = True),'k')
-    plt.title(star_name)
+        plt.plot(x/period, func(a.x,x,np.array(ys),np.array(yerr),period,epoch,return_fit = True),'k')
+        plt.title(star_name)
     plt.ylabel('Velocity (m/s)')
     plt.xlabel('Phase')
     plt.show()
