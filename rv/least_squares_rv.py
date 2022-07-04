@@ -827,7 +827,7 @@ def systematic_error_combination(star_name):
                 rv = np.nansum(weights*fit_rv)/np.nansum(weights)
                 err = 1/np.sqrt(np.nansum(weights))
             
-            if True: #np.nanstd(disp_rvs) < 1:     
+            if np.nanstd(disp_rvs) < 1:     
                 #day_rvs.append((np.mean(observations[4].data['MJDs']),rv,err))
                 day_rvs.append(dispersion_date)
         
@@ -1094,8 +1094,10 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = []):
         ys = ys1
         yerr = yerr1
     plt.figure()
-    plt.errorbar(xs/period,ys,yerr= yerr,fmt='ro')
+    if not plot:
+        plt.errorbar(xs,ys,yerr= yerr,fmt='ro')
     if plot:
+        plt.errorbar(xs/period,ys,yerr= yerr,fmt='ro')
         plt.plot(x/period, func(a.x,x,np.array(ys),np.array(yerr),period,epoch,return_fit = True),'k')
         plt.title(star_name)
     plt.ylabel('Velocity (m/s)')
