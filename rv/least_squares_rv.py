@@ -836,9 +836,9 @@ def systematic_error_combination(star_name):
 def func(params,x,y ,yerr,period,epoch,return_fit = False):
     
     if return_fit:
-        return (params[0]*np.sin(2*np.pi/period*x+((epoch)%period)) +params[1])
+        return (params[0]*np.sin(2*np.pi*x+((epoch)%period)/period) +params[1])
     else:
-        return (params[0]*np.sin(2*np.pi/period*x+(epoch%period)) +params[1] - y)/yerr
+        return (params[0]*np.sin(2*np.pi*x+(epoch%period)/period) +params[1] - y)/yerr
 
 def mass(v,T,M_s,i, v_err, T_err, M_s_err,i_err):
     m = ((T/(2*np.pi*c.G))**(1/3) * abs(v) * M_s**(2/3))/np.sin(np.deg2rad(i))
@@ -866,7 +866,7 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = []):
     if combination == 'wtmn':    
         all_rvs, day_rvs = wtmn_combination(star_name)
         if plot:
-            xs1 = [((all_rvs[i][0]-epoch)%period) for i in range(len(all_rvs))]
+            xs1 = [((all_rvs[i][0]-epoch)%period)/period for i in range(len(all_rvs))]
         else:
             xs1 = [all_rvs[i][0] for i in range(len(all_rvs))]
         ys1 = [all_rvs[i][1]*1000 for i in range(len(all_rvs))]
@@ -876,7 +876,7 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = []):
     elif combination == 'systematic':
         all_rvs, day_rvs = systematic_error_combination(star_name)
         if plot:
-            xs1 = [((all_rvs[i][0]-epoch)%period) for i in range(len(all_rvs))]
+            xs1 = [((all_rvs[i][0]-epoch)%period)/period for i in range(len(all_rvs))]
         else:
             xs1 = [all_rvs[i][0] for i in range(len(all_rvs))]
         
@@ -1085,9 +1085,10 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = []):
                 v_error = 0
                 
         print(a.x)
+        print('velocity error: ',v_error,' m/s')
         m, m_err = mass(a.x[0]*u.m/u.s,period*u.day,star_mass*u.M_sun, inclination, v_error*u.m/u.s, period_error*u.day, star_mass_error*u.M_sun, inclination_error)
         print('Mass (Earth Masses): ', m, ' +/-', m_err)
-        x = np.linspace(0,period,10000)
+        x = np.linspace(0,1,10000)
     
     else:
         xs = xs1
@@ -1097,8 +1098,8 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = []):
     if not plot:
         plt.errorbar(xs,ys,yerr= yerr,fmt='ro')
     if plot:
-        plt.errorbar(xs/period,ys,yerr= yerr,fmt='ro')
-        plt.plot(x/period, func(a.x,x,np.array(ys),np.array(yerr),period,epoch,return_fit = True),'k')
+        plt.errorbar(xs,ys,yerr= yerr,fmt='ro')
+        plt.plot(x, func(a.x,x,np.array(ys),np.array(yerr),period,epoch,return_fit = True),'k')
         plt.title(star_name)
     plt.ylabel('Velocity (m/s)')
     plt.xlabel('Phase')
