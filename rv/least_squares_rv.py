@@ -839,13 +839,19 @@ def func(params,x,y ,yerr,period,epoch,return_fit = False):
         return (params[0]*np.sin(2*np.pi*x+((epoch)%period)/period) +params[1])
     else:
         return (params[0]*np.sin(2*np.pi*x+(epoch%period)/period) +params[1] - y)/yerr
-
+        
+def linear_func(params,x,y,yerr, return_fit = False):
+    
+    if return_fit:
+        return params[0]*x + params[1]
+    else:
+        return (params[0]*x + params[1] - y)/yerr
 def mass(v,T,M_s,i, v_err, T_err, M_s_err,i_err):
     m = ((T/(2*np.pi*c.G))**(1/3) * abs(v) * M_s**(2/3))/np.sin(np.deg2rad(i))
     m_err = m  * ((i_err/np.tan(np.deg2rad(i)))**2 + (1/3 * T_err/T)**2 + (abs(v_err)/abs(v))**2 + (2/3 * M_s_err/M_s)**2)**0.5
     return m.to(u.M_earth), m_err.to(u.M_earth)
                
-def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = []):
+def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = [], binary = False):
     
     # if want to plot and find the mass, then star parameters should be in the known_parameters.csv file, so read them in
     if plot:
@@ -1037,42 +1043,54 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = []):
                 files.extend(files2[i+1:])
                 i = j.get()
             i += 1
-
-        #mnrvs = []
-        #for elem in day_rvs:
-        #    vels = [elem[i][1]*1000 for i in range(len(elem))]
-        #    vels = np.array(vels)
-        #    velerrs = [elem[i][2]*1000 for i in range(len(elem))]
-        #    velerrs = np.array(velerrs)
+        
+        mnrvs = []
+        dates = []
+        mnrvs_errs = []
+        for elem in day_rvs:
+            dates.extend([elem[i][0] for i in range(len(elem))])
+            vels = [elem[i][1]*1000 for i in range(len(elem))]
+            vels = np.array(vels)
+            velerrs = [elem[i][2]*1000 for i in range(len(elem))]
+            velerrs = np.array(velerrs)
         
             
-        #    w = 1/velerrs**2
-        #    for i, weight in enumerate(w):
-        #        if np.isinf(abs(weight)):
-        #                    weights[i] = 0
-        #    if np.nansum(abs(w))==0:
-        #        mnrvs.extend([np.nan]*len(elem))
-        #    else:
-        #        mnrvs.extend([np.nansum(w*vels)/np.nansum(w)]*len(elem))
-        #        print(len(elem))
+            w = 1/velerrs**2
+            for i, weight in enumerate(w):
+                if np.isinf(abs(weight)):
+                            weights[i] = 0
+            if np.nansum(abs(w))==0:
+                mnrvs.extend([np.nan]*len(elem))
+                mnrvs_errs.extend([np.nan]*len(elem))
+            else:
+                mnrvs.extend([np.nansum(w*vels)/np.nansum(w)]*len(elem))
+                mnrvs_errs.extend([1/np.nansum(w)**0.5]*len(elem))
         
-
-     
-        #ys = np.array(ys)
-        #mnrvs = np.array(mnrvs)
+        
+        mnrvs = np.array(mnrvs)
+        mnrvs_errs = np.array(mnrvs_errs)
+        dates = np.array(dates)
+        
 
         #mnrvs = mnrvs[inds]
-        #print(flagged_points)
-        #print(ys)
-        #print(mnrvs)
-        #if len(ys)!=len(mnrvs) and len(flagged_points) != 0:  
-        #    mnrvs = mnrvs[~np.array(flagged_points)] 
-        #print(mnrvs)     
-        #ys -= mnrvs
+        
+        if len(ys)!=len(mnrvs) and len(flagged_points) != 0:  
+            mnrvs = mnrvs[~np.array(flagged_points)]
+            mnrvs_errs = mnrvs_errs[~np.array(flagged_points)] 
+            d = dates[~np.array(flagged_points)]
+        
+        # if the planet is in a stellar binary, add a linear term to account for this motion
+        if binary:
+            a = optimise.least_squares(linear_func, x0 = [0,0], args = (d,mnrvs,mnrvs_errs))
+            
+            # sort dates to be in the same order as the phase plot
+            dates = dates[inds]
+            dates = dates[~np.array(flagged_points)]
+            ys += a.x[0]*dates
+            
         init_cond = [(max(ys)-min(ys))/2,np.nanmedian(ys)]
         print(init_cond)
-        
-        
+            
         a = optimise.least_squares(func,x0 = init_cond, args=(np.array(xs),np.array(ys),np.array(yerr),period,epoch))
         
         if a.success:
