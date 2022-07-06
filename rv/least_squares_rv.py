@@ -851,13 +851,11 @@ def mass(v,T,M_s,i, v_err, T_err, M_s_err,i_err):
     m_err = m  * ((i_err/np.tan(np.deg2rad(i)))**2 + (1/3 * T_err/T)**2 + (abs(v_err)/abs(v))**2 + (2/3 * M_s_err/M_s)**2)**0.5
     return m.to(u.M_earth), m_err.to(u.M_earth)
                
-def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = [], binary = False):
+def flag_rvs(star_name, combination = 'systematic', plot = True, flagged_points = []): 
     
-    # if want to plot and find the mass, then star parameters should be in the known_parameters.csv file, so read them in
     if plot:
         parameters = Table.read('known_parameters.csv')
         star_parameters = parameters[parameters['\ufeffname']==star_name][0]
-    
         star_mass = star_parameters['star_mass']
         star_mass_error = star_parameters['star_mass_error']
         period = star_parameters['period']
@@ -865,8 +863,7 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = [], 
         epoch = star_parameters['epoch']
         epoch_error = star_parameters['epoch_error']
         inclination = star_parameters['inclination']
-        inclination_error = star_parameters['inclination_error']
-        
+        inclination_error = star_parameters['inclination_error']    
     
     # combine the order and fibre rvs depending on what the chosen combination method is
     if combination == 'wtmn':    
@@ -955,7 +952,6 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = [], 
         rej = []
         bad = np.where((ys1>max_rvs.get())|(min_rvs.get()>ys1))
         rej.extend(bad[0])
-        
         i = 0
         
         while i < len(ys2):
@@ -964,6 +960,7 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = [], 
             ws = tk.Tk()
             ws.title('Keep Point?')
             keep = tk.BooleanVar(ws)
+            keep.set(1)
             j = tk.IntVar(ws)  
             
             data1 = {'MJD': xs2[i:],
@@ -992,7 +989,7 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = [], 
                 
                 df4 = DataFrame(data4,columns=['MJD','RV'])
 
-            figure1 = plt.Figure(figsize=(8,8), dpi=100)
+            figure1 = plt.Figure(figsize=(10,7), dpi=100)
             ax1 = figure1.add_subplot(111)
             ax1.scatter(df1['MJD'],df1['RV'], color = 'k',label = 'To Do')
             ax1.scatter(df3['MJD'],df3['RV'], color = 'g', label = 'Accepted',marker = '^')
@@ -1004,9 +1001,13 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = [], 
             scatter1.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH)
             
             b = tk.Button(ws,text = 'Keep', command =lambda:[keep.set(1),ws.destroy()]).pack()
-            #b = tk.Button(ws,text = 'Reject', command =lambda:[keep.set(0),ws.destroy()]).pack()
             b = tk.Button(ws, text = 'Flag', command =lambda:[keep.set(0),ws.destroy()]).pack()
             b = tk.Button(ws,text = 'Keep Rest', command =lambda:[j.set(len(ys2)),ws.destroy()]).pack()
+            
+            text1 = tk.Label(ws, text = 'File: '+files2[i][0]+', Date (yymmdd): '+files2[i][1]) 
+            text1.configure(font=("Arial", 10, "bold"))
+            text1.pack()
+            
             text = tk.Text(ws)
            
             logs = np.array(glob.glob('/priv/avatar/velocedata/Data/Raw/'+str(files2[i][1])+'/ccd_3/[0-9,A-Z,a-z,_,-]*.log')).flatten()
@@ -1019,11 +1020,13 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = [], 
                 
             f = open(log,'r')
             log = f.readlines()
-            text.insert(tk.INSERT, log)  
-            text.pack()
+            text.insert(tk.INSERT, log) 
+           
+            text.pack(fill=tk.BOTH, expand=1)
             f.close()
-            #print(files)
+            
             ws.mainloop()
+            
             if keep.get(): 
                 xs.append(xs2[i])
                 ys.append(ys2[i])
@@ -1043,7 +1046,40 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = [], 
                 files.extend(files2[i+1:])
                 i = j.get()
             i += 1
+            
+    else:
+        inds = list(range(len(xs1)))
+    if plot:
+        if len(flagged_points)==0:
+            flagged = [False]*l_xs
+        else:
+            flagged = flagged_points
+        for point in range(l_xs):
+            if point in rej:
+                flagged[point] = True
+                
+        return flagged, np.array(orig_files)[np.array(flagged)], inds, xs1, ys1, yerr1, files1, day_rvs
         
+def plot_phase(star_name, combination = 'systematic', plot = True, flagged_points = [], binary = False):
+    # if want to plot and find the mass, then star parameters should be in the known_parameters.csv file, so read them in
+    if plot:
+        parameters = Table.read('known_parameters.csv')
+        star_parameters = parameters[parameters['\ufeffname']==star_name][0]
+        star_mass = star_parameters['star_mass']
+        star_mass_error = star_parameters['star_mass_error']
+        period = star_parameters['period']
+        period_error = star_parameters['period_error']
+        epoch = star_parameters['epoch']
+        epoch_error = star_parameters['epoch_error']
+        inclination = star_parameters['inclination']
+        inclination_error = star_parameters['inclination_error']
+    flagged_points, flagged_files, inds, phase, velocity, velocity_err, files, day_rvs = flag_rvs(star_name, combination = combination, plot = plot, flagged_points = flagged_points)
+    
+    phase = phase[~np.array(flagged_points)]
+    velocity = velocity[~np.array(flagged_points)]
+    velocity_err = velocity_err[~np.array(flagged_points)]
+    
+    if binary:
         mnrvs = []
         dates = []
         mnrvs_errs = []
@@ -1053,7 +1089,7 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = [], 
             vels = np.array(vels)
             velerrs = [elem[i][2]*1000 for i in range(len(elem))]
             velerrs = np.array(velerrs)
-        
+            
             
             w = 1/velerrs**2
             for i, weight in enumerate(w):
@@ -1070,28 +1106,26 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = [], 
         mnrvs = np.array(mnrvs)
         mnrvs_errs = np.array(mnrvs_errs)
         dates = np.array(dates)
-        
-
-        #mnrvs = mnrvs[inds]
-        
-        if len(ys)!=len(mnrvs) and len(flagged_points) != 0:  
+            
+            
+        if len(velocity)!=len(mnrvs) and len(flagged_points) != 0:  
             mnrvs = mnrvs[~np.array(flagged_points)]
             mnrvs_errs = mnrvs_errs[~np.array(flagged_points)] 
             d = dates[~np.array(flagged_points)]
-        
-        # if the planet is in a stellar binary, add a linear term to account for this motion
-        if binary:
-            a = optimise.least_squares(linear_func, x0 = [0,0], args = (d,mnrvs,mnrvs_errs))
+        else:
+            d = dates
+        a = optimise.least_squares(linear_func, x0 = [0,0], args = (d,mnrvs,mnrvs_errs))
             
-            # sort dates to be in the same order as the phase plot
-            dates = dates[inds]
-            dates = dates[~np.array(flagged_points)]
-            ys += a.x[0]*dates
-            
-        init_cond = [(max(ys)-min(ys))/2,np.nanmedian(ys)]
+        # sort dates to be in the same order as the phase plot
+        dates = dates[inds]
+        dates = dates[~np.array(flagged_points)]
+        velocity += a.x[0]*dates
+    
+    if plot:                
+        init_cond = [(max(velocity)-min(velocity))/2,np.nanmedian(velocity)]
         print(init_cond)
             
-        a = optimise.least_squares(func,x0 = init_cond, args=(np.array(xs),np.array(ys),np.array(yerr),period,epoch))
+        a = optimise.least_squares(func,x0 = init_cond, args=(np.array(phase),np.array(velocity),np.array(velocity_err),period,epoch))
         
         if a.success:
             try:
@@ -1109,15 +1143,15 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = [], 
         x = np.linspace(0,1,10000)
     
     else:
-        xs = xs1
-        ys = ys1
-        yerr = yerr1
+        xs = phase
+        ys = velocity
+        yerr = velocity_err
     plt.figure()
     if not plot:
-        plt.errorbar(xs,ys,yerr= yerr,fmt='ro')
+        plt.errorbar(phase,velocity,yerr= velocity_err,fmt='ro')
     if plot:
-        plt.errorbar(xs,ys,yerr= yerr,fmt='ro')
-        plt.plot(x, func(a.x,x,np.array(ys),np.array(yerr),period,epoch,return_fit = True),'k')
+        plt.errorbar(phase,velocity,yerr= velocity_err,fmt='ro')
+        plt.plot(x, func(a.x,x,np.array(velocity),np.array(velocity_err),period,epoch,return_fit = True),'k')
         plt.title(star_name)
     plt.ylabel('Velocity (m/s)')
     plt.xlabel('Phase')
@@ -1161,18 +1195,9 @@ def plot_rvs(star_name, combination = 'wtmn', plot = True, flagged_points = [], 
         print('mean',mn/count)
         print('rms',(rms/count)**0.5)
     
-    if plot:
-        if len(flagged_points)==0:
-            flagged = [False]*l_xs
-        else:
-            flagged = flagged_points
-        for point in range(l_xs):
-            
-            if point in rej:
-                flagged[point] = True
-                
-        return flagged, np.array(orig_files)[np.array(flagged)]
-    else:
+    if not plot:
         return mn/count, (rms/count)**0.5
+    else:
+        return m,m_err, flagged_points, flagged_files
                            
-                
+                        
