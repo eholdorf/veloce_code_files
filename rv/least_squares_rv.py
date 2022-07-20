@@ -22,7 +22,9 @@ import tkinter as tk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from pandas import DataFrame
 import glob
-
+import radvel
+import radvel.likelihood
+from radvel.plot import orbit_plots, mcmc_plots
 
 def create_observation_fits(standard, obs_fits, date, save_dir, combine_fibres = False):
     # find the file path
@@ -100,7 +102,16 @@ def create_observation_fits(standard, obs_fits, date, save_dir, combine_fibres =
             all_s_logflux[:,order,fibre] /= telluric[:,order]
             
             all_s_logerrflux[:,order,fibre] *= all_s_logflux[:,order,fibre]
-            
+    
+    if not os.path.exists('/priv/avatar/ehold13/twmn_tellurics/'+obs_fits[0:10]+'_'+date+'.fits'):
+        prim = pyfits.PrimaryHDU()
+        tel = pyfits.ImageHDU(telluric,name = 'telluric_spect')
+        waves = pyfits.ImageHDU(all_log_w[:,:,-1], name = 'wavelength')
+        tel_err = pyfits.ImageHDU(telluric_error,name = 'telluric_err_spect')  
+        
+        hdul = pyfits.HDUList([prim, tel, waves,tel_err])
+        hdul.writeto('/priv/avatar/ehold13/twmn_tellurics/'+obs_fits[0:10]+'_'+date+'.fits')
+          
     
     wavelength = all_log_w
     spect = all_s_logflux
@@ -770,13 +781,17 @@ def systematic_error_combination(star_name):
 
                 # combine fibres with weighted-mean
                 for order in range(len(rvs[:,0])):
+                    ord_std = np.nanstd(rvs[order,:])
+                    ord_med = abs(np.nanmedian(rvs[order,:]))
+                    errors[order,:] = np.where(abs(rvs[order,:])>ord_med+5*ord_std,np.inf,errors[order,:])
+                    
                     weights =  1/errors[order,:]**2
                     for i,weight in enumerate(weights):
                         if np.isinf(weight):
                             weights[i] = 0
-                    if np.nansum(weights) == 0:
+                    if np.nansum(weights) < 10e-10 or order+65 in [67,69,79,80,95]:
                         order_rv[obs,order] = 0
-                        order_rv_err[obs,order] = 0
+                        order_rv_err[obs,order] = np.inf
                     else:
                         order_rv[obs,order] = np.nansum(weights*rvs[order,:])/np.nansum(weights)
                         order_rv_err[obs,order] = 1/np.sqrt(np.nansum(weights))
@@ -788,6 +803,12 @@ def systematic_error_combination(star_name):
                  
                 
                 order_rv_err[obs,:] = np.where(order_rv_err[obs,:]<10e-16,0,order_rv_err[obs,:])
+                
+                rv_std = np.nanstd(order_rv[obs])
+                rv_med = abs(np.nanmedian(order_rv[obs]))
+                order_rv_err[obs,:] = np.where(abs(order_rv[obs])> 5*rv_std+rv_med, np.inf, order_rv_err[obs])
+                
+                
                 # combine orders with weighted-mean
                 weights = 1/order_rv_err[obs,:]**2
 
@@ -795,7 +816,7 @@ def systematic_error_combination(star_name):
                     if np.isinf(weight):
                         weights[i] = 0
                
-                if np.nansum(abs(weights))==0:
+                if np.nansum(abs(weights)) < 10e-10:
                     fit_rv[obs] = np.nan
                     fit_rv_err[obs] = np.nan
                 
@@ -816,20 +837,18 @@ def systematic_error_combination(star_name):
                     if elem > abs(med)+std:
                        del dispersion_date[i]
                 all_rvs.extend(dispersion_date) 
-            weights = 1/fit_rv_err**2
-            for i,weight in enumerate(weights):
-                    if np.isinf(abs(weight)):
-                        weights[i] = 0
-            if np.nansum(abs(weights))==0:
-                rv = np.nan
-                err = np.nan
-            else:
-                rv = np.nansum(weights*fit_rv)/np.nansum(weights)
-                err = 1/np.sqrt(np.nansum(weights))
-            
-            if np.nanstd(disp_rvs) < 1:     
-                #day_rvs.append((np.mean(observations[4].data['MJDs']),rv,err))
-                day_rvs.append(dispersion_date)
+#            weights = 1/fit_rv_err**2
+#            for i,weight in enumerate(weights):
+#                    if np.isinf(abs(weight)):
+#                        weights[i] = 0
+#            if np.nansum(abs(weights))==0:
+#                rv = np.nan
+#                err = np.nan
+#            else:
+#                rv = np.nansum(weights*fit_rv)/np.nansum(weights)
+#                err = 1/np.sqrt(np.nansum(weights))
+#            
+            day_rvs.append(dispersion_date)
         
     return all_rvs, day_rvs
 
@@ -920,38 +939,40 @@ def flag_rvs(star_name, combination = 'systematic', plot = True, flagged_points 
         files = []
         med = np.median(ys1)
         
-        ws = tk.Tk()
-        ws.title('Set Upper and Lower RV Bounds')
-        min_rvs = tk.IntVar(ws)
-        max_rvs = tk.IntVar(ws)
+        #ws = tk.Tk()
+        #ws.title('Set Upper and Lower RV Bounds')
+        #min_rvs = tk.IntVar(ws)
+        #max_rvs = tk.IntVar(ws)
         
-        data1 = {'MJD': xs2,
-             'RV': ys2
-            }
+        #data1 = {'MJD': xs2,
+        #     'RV': ys2
+        #    }
             
-        df1 = DataFrame(data1,columns=['MJD','RV'])
-        figure1 = plt.Figure(figsize=(12,10), dpi=100)
-        ax1 = figure1.add_subplot(111)
-        ax1.scatter(df1['MJD'],df1['RV'], color = 'k')
-        scatter1= FigureCanvasTkAgg(figure1, ws) 
-        scatter1.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH)
-        L1 = tk.Label(ws, text="Minimum")
-        L1.pack()
-        min_rv = tk.Entry(ws)
-        min_rv.pack()
-        L2 = tk.Label(ws, text="Maximum")
-        L2.pack()
-        max_rv = tk.Entry(ws)
-        max_rv.pack()
-        
-        tk.Button(ws,text="Okay",command =lambda:[min_rvs.set(min_rv.get()),max_rvs.set(max_rv.get()),ws.destroy()]).pack()
-        ws.mainloop()
-        
-        
-        #good_points = np.where((ys1<max_rvs.get())&(min_rvs.get()<ys1))
+        #df1 = DataFrame(data1,columns=['MJD','RV'])
+        #figure1 = plt.Figure(figsize=(12,10), dpi=100)
+        #ax1 = figure1.add_subplot(111)
+        #ax1.set_xlabel('Phase')
+#        ax1.set_ylabel('Velocity (m/s)')
+#        ax1.set_title(star_name)
+#        ax1.scatter(df1['MJD'],df1['RV'], color = 'k')
+#        scatter1= FigureCanvasTkAgg(figure1, ws) 
+#        scatter1.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH)
+#        L1 = tk.Label(ws, text="Minimum")
+#        L1.pack()
+#        min_rv = tk.Entry(ws)
+#        min_rv.pack()
+#        L2 = tk.Label(ws, text="Maximum")
+#        L2.pack()
+#        max_rv = tk.Entry(ws)
+#        max_rv.pack()
+#        
+#        tk.Button(ws,text="Okay",command =lambda:[min_rvs.set(min_rv.get()),max_rvs.set(max_rv.get()),ws.destroy()]).pack()
+#        ws.mainloop()
+#        
+#        
         rej = []
-        bad = np.where((ys1>max_rvs.get())|(min_rvs.get()>ys1))
-        rej.extend(bad[0])
+#        bad = np.where((ys1>max_rvs.get())|(min_rvs.get()>ys1))
+#        rej.extend(bad[0])
         i = 0
         
         while i < len(ys2):
@@ -991,6 +1012,8 @@ def flag_rvs(star_name, combination = 'systematic', plot = True, flagged_points 
 
             figure1 = plt.Figure(figsize=(10,7), dpi=100)
             ax1 = figure1.add_subplot(111)
+            ax1.set_xlabel('Phase')
+            ax1.set_ylabel('Velocity (m/s)')
             ax1.scatter(df1['MJD'],df1['RV'], color = 'k',label = 'To Do')
             ax1.scatter(df3['MJD'],df3['RV'], color = 'g', label = 'Accepted',marker = '^')
             if len(rej)!=0:
@@ -1059,7 +1082,10 @@ def flag_rvs(star_name, combination = 'systematic', plot = True, flagged_points 
                 flagged[point] = True
                 
         return flagged, np.array(orig_files)[np.array(flagged)], inds, xs1, ys1, yerr1, files1, day_rvs
-        
+    else:
+        flagged = [False]*len(xs1)
+        return flagged, np.array(list(range(len(xs1)))), xs1, ys1, yerr1, files1, day_rvs
+               
 def plot_phase(star_name, combination = 'systematic', plot = True, flagged_points = [], binary = False):
     # if want to plot and find the mass, then star parameters should be in the known_parameters.csv file, so read them in
     if plot:
@@ -1073,24 +1099,37 @@ def plot_phase(star_name, combination = 'systematic', plot = True, flagged_point
         epoch_error = star_parameters['epoch_error']
         inclination = star_parameters['inclination']
         inclination_error = star_parameters['inclination_error']
-    flagged_points, flagged_files, inds, phase, velocity, velocity_err, files, day_rvs = flag_rvs(star_name, combination = combination, plot = plot, flagged_points = flagged_points)
-    
-    phase = phase[~np.array(flagged_points)]
-    velocity = velocity[~np.array(flagged_points)]
-    velocity_err = velocity_err[~np.array(flagged_points)]
-    
-    if binary:
+    if plot:
+        flagged_points, flagged_files, inds, phase, velocity, velocity_err, files, day_rvs = flag_rvs(star_name, combination = combination, plot = plot, flagged_points = flagged_points)
+        phase = phase[~np.array(flagged_points)]
+        velocity = velocity[~np.array(flagged_points)]
+        velocity_err = velocity_err[~np.array(flagged_points)]
+    else:
+        flagged_points,inds, phase, velocity, velocity_err, files, day_rvs = flag_rvs(star_name, combination = combination, plot = plot, flagged_points = flagged_points)
+               
+    if True:
         mnrvs = []
         dates = []
         mnrvs_errs = []
+        mnrvs_l = []
+        mnrvs_errs_l = []
+        dd = []
+        
         for elem in day_rvs:
+
             dates.extend([elem[i][0] for i in range(len(elem))])
+            dd.append(np.nanmedian([elem[i][0] for i in range(len(elem))]))
             vels = [elem[i][1]*1000 for i in range(len(elem))]
             vels = np.array(vels)
             velerrs = [elem[i][2]*1000 for i in range(len(elem))]
             velerrs = np.array(velerrs)
             
-            
+            # for each velocity, check if it is still in the velocity list (if it has been flagged, then don't include it in the mean day velocity)
+            for ind, vel in enumerate(vels):
+                k = np.where(abs(velocity - vel) < 1e-5)[0]
+               
+                if len(k) == 0:
+                    velerrs[ind] = 1e5  
             w = 1/velerrs**2
             for i, weight in enumerate(w):
                 if np.isinf(abs(weight)):
@@ -1098,9 +1137,14 @@ def plot_phase(star_name, combination = 'systematic', plot = True, flagged_point
             if np.nansum(abs(w))==0:
                 mnrvs.extend([np.nan]*len(elem))
                 mnrvs_errs.extend([np.nan]*len(elem))
+                mnrvs_l.append(np.nan)
+                mnrvs_errs_l.append(np.nan)
             else:
                 mnrvs.extend([np.nansum(w*vels)/np.nansum(w)]*len(elem))
                 mnrvs_errs.extend([1/np.nansum(w)**0.5]*len(elem))
+                mnrvs_l.append(np.nansum(w*vels)/np.nansum(w))
+                mnrvs_errs_l.append(1/np.nansum(w)**0.5)
+                
         
         
         mnrvs = np.array(mnrvs)
@@ -1114,13 +1158,22 @@ def plot_phase(star_name, combination = 'systematic', plot = True, flagged_point
             d = dates[~np.array(flagged_points)]
         else:
             d = dates
+        
         a = optimise.least_squares(linear_func, x0 = [0,0], args = (d,mnrvs,mnrvs_errs))
             
         # sort dates to be in the same order as the phase plot
         dates = dates[inds]
         dates = dates[~np.array(flagged_points)]
-        velocity += a.x[0]*dates
-    
+        if binary:
+            velocity += a.x[0]*dates
+        
+        plt.figure()
+        plt.errorbar(dates,velocity,yerr = velocity_err,fmt='ko')
+        plt.xlabel('MJD')
+        plt.ylabel("Velocity (m/s)")
+        plt.title(star_name)
+        #plt.show()
+        
     if plot:                
         init_cond = [(max(velocity)-min(velocity))/2,np.nanmedian(velocity)]
         print(init_cond)
@@ -1150,12 +1203,14 @@ def plot_phase(star_name, combination = 'systematic', plot = True, flagged_point
     if not plot:
         plt.errorbar(phase,velocity,yerr= velocity_err,fmt='ro')
     if plot:
-        plt.errorbar(phase,velocity,yerr= velocity_err,fmt='ro')
-        plt.plot(x, func(a.x,x,np.array(velocity),np.array(velocity_err),period,epoch,return_fit = True),'k')
+        plt.errorbar(-0.5+phase,velocity - a.x[1],yerr= velocity_err,fmt='ro')
+        plt.errorbar(-0.5+(dd%period)/period, mnrvs_l - a.x[1], yerr = mnrvs_errs_l, fmt = 'bo')
+        plt.plot(-0.5+x, func(a.x,x,np.array(velocity),np.array(velocity_err),period,epoch,return_fit = True) - a.x[1],'k')
         plt.title(star_name)
     plt.ylabel('Velocity (m/s)')
     plt.xlabel('Phase')
     plt.show()
+    
     
     # if not plotting, than looking at the mean and rms velocities
     if not plot:
@@ -1174,9 +1229,10 @@ def plot_phase(star_name, combination = 'systematic', plot = True, flagged_point
                             weights[i] = 0
             if np.nansum(abs(w))==0:
                 mnrvs.extend([np.nan]*len(elem))
+                
             else:
                 mnrvs.extend([np.nansum(w*vels)/np.nansum(w)]*len(elem))
-
+                
         
         mn = 0
         rms = 0
@@ -1188,7 +1244,8 @@ def plot_phase(star_name, combination = 'systematic', plot = True, flagged_point
                 rms += (ys[i] - mnrvs[i])**2
                 count += 1
                 plt.errorbar(times[i], ys[i] - mnrvs[i],yerr = yerr[i],fmt = 'k.',capsize=5)
-        plt.ylabel('Barycentric Velocity Error (m/s)')
+                plt.errorbar(times[i], mnrvs[i], yerr = yerr[i], fmt = 'r.', capsize =5)
+        plt.ylabel('Velocity (m/s)')
         plt.xlabel('Date')
         plt.tight_layout()
         plt.show()
@@ -1198,6 +1255,6 @@ def plot_phase(star_name, combination = 'systematic', plot = True, flagged_point
     if not plot:
         return mn/count, (rms/count)**0.5
     else:
-        return m,m_err, flagged_points, flagged_files
+        return m,m_err, flagged_points, flagged_files, phase, velocity, velocity_err, dates, mnrvs_l, mnrvs_errs_l,dd
                            
                         

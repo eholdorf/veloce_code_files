@@ -396,7 +396,7 @@ def telluric_correction(obs_night, time, date, scrunch = True, B_plus = None, ai
         
     Returns
     -------
-    wavelegnth : type - numpy nd-array
+    wavelength : type - numpy nd-array
         evenly log scaled wavlength grid for the stellar fibres which has a shape = wavelength x order = 22 600 x 40
     
     telluric_spec : type - numpy np-array
@@ -418,6 +418,10 @@ def telluric_correction(obs_night, time, date, scrunch = True, B_plus = None, ai
         element 1 - byte (string) : telluric fits file name as in veloce_observations.fits
         element 2 - byte (int) : date of the telluric star observation as in veloce_observations.fits
         element 3 - byte (float) : modified julian date for the telluric star observation
+        
+    B_plus : type - numpy nd-array
+        matrix to do absorption line patching, same as input if not None
+
     """ 
     # find a telluric star for the given observation
     target_star, telluric_star = find_telluric_star(obs_night, time, date)
@@ -530,7 +534,16 @@ def barycentric_correction(template_obs, star_obs, template_date, star_date, tab
         fits file name from veloce_observations.fits that the wavelength scale is being shifted to (e.g. '11dec30096o.fits')
         
     star_obs : type - string
-        fits file name from veloce_observations.fits that will have the wavelength scale shifted to template_obs (e.g. '11dec30096o.fits')  
+        fits file name from veloce_observations.fits that will have the wavelength scale shifted to template_obs (e.g. '11dec30096o.fits')
+        
+    template_date : type - string
+        date of the observation in yymmdd  
+    
+    star_date : type - string
+        date of the observation in yymmdd  
+        
+    table_dir : type - string
+        directory of the Veloce observation fits file with observation data    
     
     Returns
     -------
@@ -787,6 +800,30 @@ def generate_template(file_paths, dates, save_spect = False, save_name = ''):
     
     
 def generate_RV_files(name,date,temp, plotting = False):
+    """
+    Description
+    -----------
+    This code will create the base files that need to be run to generate the radial velocity files
+    
+    Parameters
+    ----------
+    name : type - string
+        Name of the star as in the veloce_observations.fits file_date
+    
+    date : type - string
+        Date of the observations to find the radial velocities of.
+    
+    temp : type - string
+        The template want to use to extract the radial velocities.
+        
+    plotting : type - boolean (default - False)
+        If want to plot the radial velocities for each fibre and order once derived.
+    
+    Returns
+    -------
+    None
+    
+    """
     lines = ['import sys\n','sys.path.append("/home/ehold13/veloce_scripts/")\n','from rv.least_squares_rv import *\n', 'from rv.main_funcs import barycentric_correction\n','from astropy.table import Table\n', 'import astropy.io.fits as pyfits\n','import matplotlib.pyplot as plt\n','\n','# put star name, date and template here\n', 'star_name ='+"\'"+str(name)+"\'"+'\n','date ='+"\'"+str(date)+"\'"+ '\n','template ='+"\'"+str(temp)+"\'"+'\n','velocity_errors, files, orders = generate_rvs(star_name,date,template)\n','\n',]
     if plotting:
         lines.extend(['if True:'])
