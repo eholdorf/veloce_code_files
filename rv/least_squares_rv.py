@@ -27,6 +27,39 @@ import radvel.likelihood
 from radvel.plot import orbit_plots, mcmc_plots
 
 def create_observation_fits(standard, obs_fits, date, save_dir, combine_fibres = False):
+    """
+    Description
+    -----------
+    This function creates the corrected .fits files which can be used to derive radial velocities.
+    
+    Parameters
+    ----------
+    standard : type - string
+        Name of the fits file want final fits file to have wavelength scale of, e.g. '11dec30096o.fits'
+    
+    obs_fits : type - string
+        Name of the fits file to correct, e.g. '11dec30096o.fits'
+    
+    date : type - string
+        Date of the observation in yymmdd format  
+    
+    save_dir : type - string
+        The directroy to save the resulting .fits file.
+    
+    combine_fibres : type - boolean (default - False)
+        If want to combine the fibre fluxes then True, else False
+    
+    Returns
+    -------
+    spect : type - numpy nd-array
+        Spectrum of the corrected .fits file
+    
+    wavelength : type - numpy nd-array
+        Wavelength for the corrected .fits file
+    
+    spect_err : type - numpy nd-array
+        Spectrum error of the corrected .fits file
+    """
     # find the file path
     file_path = get_observations.get_fits_path([obs_fits.encode('utf-8')])
     for path in sum(file_path,[]):
@@ -306,6 +339,24 @@ def test_rv_chi2(params, rvs, lwave, spect, spect_err, template, lwave0, dlwave)
     
 
 def combination_method_two(observation_dir = '/home/ehold13/veloce_scripts/veloce_reduction/10700/', dispersion_limit = 0.1):
+    """
+    Description
+    -----------
+    This function will compute the mean square residual for all files in the observation_dir
+    
+    Parameters
+    ----------
+    observation_dir : type - string
+        The folder where the files are to compute the mean square residual for each order_index
+    
+    dispersion_limit : type - float64
+        The dispersion between fibres that will be tolerated
+    
+    Returns
+    -------
+    mean_sq_resid : type - numpy nd-array
+        The mean square residuals for each of the orders
+    """
     all_obs_rvs = []
     all_order_rvs = []
     
@@ -379,6 +430,17 @@ def combination_method_two(observation_dir = '/home/ehold13/veloce_scripts/veloc
             
     
 def combination_method_three(observation_dir, dispersion_limit = 0.1):
+    """
+    Description
+    -----------
+    
+    
+    Parameters
+    ----------
+    
+    Returns
+    -------
+    """
     median_flux = []
     v_wtmn = []
     for fits in os.listdir(observation_dir):
@@ -422,7 +484,50 @@ def combination_method_three(observation_dir, dispersion_limit = 0.1):
     plt.show()
               
 
-def generate_rvs(star_name, date, template_path, int_guess = 0.1, alpha = 0.2, residual_limit = 0.5,runs = 1, total_runs = 5):   
+def generate_rvs(star_name, date, template_path, int_guess = 0.1, alpha = 0.2, residual_limit = 0.5,runs = 1, total_runs = 5):
+    """
+    Description
+    -----------
+    This function will generate the radial velocities for each fibre and order.
+    
+    Parameters
+    ----------
+    star_name : type - string
+        Name of the star calculating the velocity for
+    
+    date : type - string
+        Date of the observations in yymmdd
+    
+    template_path : type - string
+        The path to the template used to calculate velocities
+    
+    int_guess : type - float64
+        Initial velocity guess for radial velocity in km/s
+    
+    alpha : type - float64
+        Value to multiply log(telluric depth) by to add to errors to weight points less
+    
+    residual_limit : type - float64
+        Residual limit tolerate for a point to be removed to re-run fitting
+    
+    runs : type - int
+        current run number of velocity fit
+    
+    total_runs : type - int
+        The total number of runs to do removing points where fit is bad.
+    
+    Returns
+    -------
+    velocity_errors : type - numpy nd-arrays
+       Measure of different between velocity and barycentric velocity for each file and order, use if testing data quality and have done no corrections
+    
+    files : type - list
+        List of files where velocity has been calculated
+    
+    orders : type - list
+        All of the orders where the velocity was calculated   
+    
+    """   
     
     veloce_obs = Table.read('/home/ehold13/veloce_scripts/veloce_observations.fits')
 
@@ -622,6 +727,17 @@ def generate_rvs(star_name, date, template_path, int_guess = 0.1, alpha = 0.2, r
     return velocity_errors, files, orders
         
 def rv_err_obs(file_names):
+    """
+    Description
+    -----------
+    Old function to check for self consistency.
+    
+    Parameters
+    ----------
+    
+    Returns
+    -------
+    """
     rvs = []
     mnrvs = []
     times = []
@@ -667,6 +783,20 @@ def rv_err_obs(file_names):
     print('rms',(rms/count)**0.5)
     
 def obs_creation_loop(star_name):
+    """
+    Description
+    -----------
+    Create all corrected fits files for a given star
+    
+    Parameters
+    ----------
+    star_name : type - string
+        Name of the star want to create the corrected fits files for
+    
+    Returns
+    -------
+    None
+    """
     dd = Table.read('/home/ehold13/veloce_scripts/veloce_observations.fits')
     
     stars = dd[dd['star_names']==star_name]
@@ -679,6 +809,24 @@ def obs_creation_loop(star_name):
                     create_observation_fits('11dec30096o.fits',fit.decode('utf-8'),star[8][i].decode('utf-8'),'/priv/avatar/ehold13/obs_corrected/'+star_name+'/')
 
 def wtmn_combination(star_name):
+    """
+    Description
+    -----------
+    Combine orders and fibres with a weighted-mean
+    
+    Parameters
+    ----------
+    star_name : type - string
+        Name of the star to combine velocities
+    
+    Returns
+    -------
+    all_rvs : type - numpy nd-array
+        Velocity for each observation
+    
+    day_rvs : type - numpy nd-array
+        Velocity for each observation grouped by date
+    """
     all_rvs = []
     day_rvs = []
     for file_date in os.listdir('/home/ehold13/veloce_scripts/veloce_reduction/'+star_name+'/'):
@@ -753,6 +901,24 @@ def wtmn_combination(star_name):
     return all_rvs, day_rvs
 
 def systematic_error_combination(star_name):
+    """
+    Description
+    -----------
+    Includes systematic erros in weighted-mean calculations
+    
+    Parameters
+    ----------
+    star_name : type - string
+        Name of the star to calculate combined velocities of
+    
+    Returns
+    -------
+    all_rvs : type - string
+        Velocity for each observation
+    
+    day_rvs : type - numpy nd-array
+        Velocity for each observation grouped by date
+    """
     all_rvs = []
     day_rvs = []
     combination = combination_method_two()
@@ -853,6 +1019,32 @@ def systematic_error_combination(star_name):
     return all_rvs, day_rvs
 
 def func(params,x,y ,yerr,period,epoch,return_fit = False):
+    """
+    Description
+    -----------
+    General function to calculate velocity amplitude
+    
+    Parameters
+    ----------
+    params : type - list
+        Fitting parameters
+    x : type - numpy nd-array 
+        Phase of each observation 
+    y : type - numpy nd-array 
+        Velocity of each point
+    yerr : type - numpy nd-array
+        Velocity error of each point 
+    period : type - float 
+        Period of the planet from TESS
+    epoch : type - float64
+        Epoch of the planet, from TESS
+    return_fit : type - boolen (default - False)
+        True if return velocity, False if return relative error
+    
+    Returns
+    -------
+    Relative error if return_fit False, velocity if return_fit True
+    """
     
     if return_fit:
         return (params[0]*np.sin(2*np.pi*x+((epoch)%period)/period) +params[1])
@@ -860,17 +1052,109 @@ def func(params,x,y ,yerr,period,epoch,return_fit = False):
         return (params[0]*np.sin(2*np.pi*x+(epoch%period)/period) +params[1] - y)/yerr
         
 def linear_func(params,x,y,yerr, return_fit = False):
+    """
+    Description
+    -----------
+    Linear line function to use to correct for binary movement
+    """
     
     if return_fit:
         return params[0]*x + params[1]
     else:
         return (params[0]*x + params[1] - y)/yerr
 def mass(v,T,M_s,i, v_err, T_err, M_s_err,i_err):
+    """
+    Description
+    -----------
+    Calculate the mass of the planet in Earth masses.
+    
+    Parameters
+    ----------
+    v : type - astropy units
+        velocity amplitue in m/s
+    
+    T : type - astropy units
+        planet period in days
+    
+    M_s : type - astropy units
+        star mass in solar masses
+    
+    i : type - float
+        inclination in degrees
+    
+    v_err : type - astropy units
+        velocity error in m/s
+    
+    T_err : type - astropy units
+        period error in days
+    
+    M_s_err : type - astropy units
+        star mass error in solar masses
+    
+    i_err : type - float
+        inclination error in degrees
+    
+    Returns
+    -------
+    m : type - float 
+        Mass of the planet in Earth masses
+        
+    m_err : type - float
+        Error on planet mass in Earth masses
+    """
     m = ((T/(2*np.pi*c.G))**(1/3) * abs(v) * M_s**(2/3))/np.sin(np.deg2rad(i))
     m_err = m  * ((i_err/np.tan(np.deg2rad(i)))**2 + (1/3 * T_err/T)**2 + (abs(v_err)/abs(v))**2 + (2/3 * M_s_err/M_s)**2)**0.5
     return m.to(u.M_earth), m_err.to(u.M_earth)
                
 def flag_rvs(star_name, combination = 'systematic', plot = True, flagged_points = []): 
+    """
+    Description
+    -----------
+    Go through each point and decide whether to flag it to check velocities
+    
+    Parameters
+    ----------
+    star_name : type - string
+        Name of the star to check velocities of
+        
+    combination : type - string (default - 'systematic')
+        the method desired to combine the order and fibre velocities, choose from 'wtmn', 'systematic'
+        
+    plot : type - boolean (default - True)
+        If True, will fit velocity amplitude curve, else will show RMS
+        
+    flagged_points : type - list
+        List of boolean values on whether to include each observation
+    
+    Returns
+    -------
+    flagged : type - list
+        List of boolean values on whether to include each observation
+    
+    flagged_files : type - list
+        List of flagged files
+    
+    xs1 : type - numpy nd-array
+        MJDs for each of the observations
+        
+    
+    ys1 : type - numpy nd-array
+        Combined velocities for each observation
+    
+    yerr1 : type - numpy nd-array 
+        Combined velocity errors for each observation
+    
+    files1 : type - numpy nd-array 
+        List of files that have been combined
+    
+    day_rvs : type - numpy nd-array 
+        All of the velocities for each observation grouped by date
+    
+    If plot = True also:
+    
+    inds : type - numpy nd-array 
+        List of index to sort the observation in phase order
+    """
     
     if plot:
         parameters = Table.read('known_parameters.csv')
@@ -1087,6 +1371,74 @@ def flag_rvs(star_name, combination = 'systematic', plot = True, flagged_points 
         return flagged, np.array(list(range(len(xs1)))), xs1, ys1, yerr1, files1, day_rvs
                
 def plot_phase(star_name, combination = 'systematic', plot = True, flagged_points = [], binary = False):
+    """
+    Description
+    -----------
+    Plot the phase plot for given star
+    
+    Parameters
+    ----------
+    star_name : type - string
+        Name of the star to plot phase of
+        
+    combination : type - string (default - 'systematic')
+        How to combine the orders and fibres, choose one of 'systematic', 'wtmn'
+    
+    plot : type - boolean (defulat - True)
+        whether to fit a velocity curve, if True then yes, if no then False
+    
+    flagged_points : type - list (default - [])
+        True/ False array as to whether to keep the point in the fitting
+        
+    binary : type - boolean (default - False)
+        Add in linear component to the velocities to account for binary motion
+        
+    
+    Returns
+    -------
+    If plot = False
+        mean : type - float 
+            mean velocity for all points
+        
+        rms : type - float 
+            RMS velocity for all points
+    
+    If plot = True
+        m : type - float 
+            Mass of the planet in Earth Masses
+        
+        m_err : type - float
+            Error on mass of planet in Earth Masses
+        
+        flagged_points : type - list
+            Boolean array of flagged points to check if want to include in the final velocity fit
+        
+        flagged_files : type - list 
+            List of flagged points to check velocities of 
+        
+        phase : type - numpy nd-array
+            Phase of each velocity point
+        
+        velocity : type - numpy nd-array
+            velocity for each observation
+        
+        velocity_err : type - numpy nd-array
+            Velocity error for each observation
+        
+        dates : type - numpy nd-array
+            MJD for each observation
+                    
+        mnrvs_l : type - numpy nd-array 
+            Mean velocities for each day of observations
+        
+        mnrvs_errs_l : type - numpy nd-array 
+            Errors for the mean velocities for each day of observations
+        
+        dd : type - numpy nd-array
+            MJD for mean velocities for each day of observations
+                           
+    
+    """
     # if want to plot and find the mass, then star parameters should be in the known_parameters.csv file, so read them in
     if plot:
         parameters = Table.read('known_parameters.csv')
