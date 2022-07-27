@@ -442,46 +442,141 @@ def combination_method_three(observation_dir, dispersion_limit = 0.1):
     -------
     """
     median_flux = []
-    v_wtmn = []
+    
+    v_all = []
+    v_all_err = []
+    v_days = []
+    # extract the velocities
     for fits in os.listdir(observation_dir):
         if fits.endswith('.fits'):
             observations = pyfits.open(observation_dir + fits)
             for obs in range(len(observations['RV'].data[:,0,0])):
                 if np.std(observations['RV'].data[obs,3:,:]) < dispersion_limit:
+                   
                     median_flux.append(observations['median_flux'].data[obs,:,:])
-                    v_wtmn.append(observations['RV'].data[obs,:,:])
+                    v_all.append(observations['RV'].data[obs,:,:])
+                    v_all_err.append(observations['ERROR'].data[obs,:,:])
+            # collect all rvs for a given day        
+            v_days.append((len(observations['RV'].data[:,0,0]),observations['RV'].data,observations['ERROR'].data))
 
     median_flux = np.array(median_flux)
-    v_wtmn = np.array(v_wtmn)
+    v_all = np.array(v_all)
+    v_all_err = np.array(v_all_err)
     order_means = np.mean(np.mean(median_flux,0),1)
     good_orders = np.where(order_means == order_means)[0]
 
     median_flux = median_flux[:,good_orders,:]
-    v_wtmn = v_wtmn[:,good_orders,:]
+    v_all = v_all[:,good_orders,:]
+    v_all_err = v_all_err[:,good_orders,:]
+    
+    v_day_wtmn = [] 
+    # calculate the wtmn for each day of observations    
+    for elem in v_days:
+        vs = elem[1]
+        vserr = elem[2]
+        ws = 1/vserr**2
+        v_day_wtmn.extend([np.nansum(ws*vs)/np.nansum(ws)]*elem[0])
+                
+    v_day_wtmn = np.array(v_day_wtmn)
+    #import pdb; pdb.set_trace()
+    v_wtmn = np.empty(len(v_all)) 
+    v_wtmn_err = np.zeros(len(v_all))
+    
+    v = v_all.reshape((v_all.shape[0],v_all.shape[1]*v_all.shape[2]))
+    v_err = v_all_err.reshape((v_all_err.shape[0],v_all_err.shape[1]*v_all_err.shape[2]))
+    
+    # calculate the weighted mean for each observation 
+    for obs in range(len(v)):
+        w = 1/v_err[obs]**2
+        
+        for i,weight in enumerate(w):
+                            if np.isinf(weight):
+                                w[i] = 0
+                       
+        
+        v_wtmn[obs] = np.nansum(w*v[obs])/np.nansum(w)
+        v_wtmn_err[obs] = 1/np.sqrt(np.nansum(abs(w)))
+    
     
     for obs in range(np.shape(median_flux[:,0,0])[0]):
         for order in range(np.shape(median_flux[0,:,0])[0]):
             median_flux[obs,order,:] /= np.mean(median_flux[obs,order,:])
-            v_wtmn -= np.mean(v_wtmn[obs,order,:])
+            #v_wtmn -= np.mean(v_wtmn[obs,order,:])
             
     X = median_flux.reshape((median_flux.shape[0],median_flux.shape[1]*median_flux.shape[2]))
-    v_wtmn = v_wtmn.reshape((v_wtmn.shape[0],v_wtmn.shape[1]*v_wtmn.shape[2]))             
+    #v_wtmn = v_wtmn.reshape((v_wtmn.shape[0],v_wtmn.shape[1]*v_wtmn.shape[2]))             
     
     W,V = np.linalg.eigh(np.dot(X.T,X))
     
     A = V[:,-4:]
     
     Y = np.dot(X,A)
+    
     p = np.dot(np.dot(np.linalg.inv(np.dot(Y.T,Y)),Y.T),v_wtmn)
     
+    
+    
+    
     v_adjust = v_wtmn - np.dot(Y,p)
+    #import pdb; pdb.set_trace()
+    plt.figure()
+    plt.plot(Y[:,0],v_wtmn,'.')
+    plt.title('First Mode')
+    plt.ylabel('V_wtmn')
+    plt.xlabel('Y[:,0]')
     
-    plt.imshow(v_adjust, aspect = 'auto', interpolation = 'nearest')
+    plt.figure()
+    plt.plot(Y[:,1],v_wtmn,'.')
+    plt.title('Second Mode')
+    plt.ylabel('V_wtmn')
+    plt.xlabel('Y[:,1]')
+    
+    
+    plt.figure()
+    plt.plot(Y[:,2],v_wtmn,'.')
+    plt.title('Third Mode')
+    plt.ylabel('V_wtmn')
+    plt.xlabel('Y[:,2]')
+    
+    
+    plt.figure()
+    plt.plot(Y[:,3],v_wtmn,'.')
+    plt.title('Fourth Mode')
+    plt.ylabel('V_wtmn')
+    plt.xlabel('Y[:,3]')
+    
+#    plt.figure()
+#    plt.plot(Y[:,0],v_wtmn - v_day_wtmn,'.')
+#    plt.title('First Mode')
+#    plt.ylabel('V_wtmn - V_day_wtmn')
+#    plt.xlabel('Y[:,0]')
+#    
+#    plt.figure()
+#    plt.plot(Y[:,1],v_wtmn - v_day_wtmn,'.')
+#    plt.title('Second Mode')
+#    plt.ylabel('V_wtmn - V_day_wtmn')
+#    plt.xlabel('Y[:,1]')
+#    
+#    
+#    plt.figure()
+#    plt.plot(Y[:,2],v_wtmn-v_day_wtmn,'.')
+#    plt.title('Third Mode')
+#    plt.ylabel('V_wtmn - V_day_wtmn')
+#    plt.xlabel('Y[:,2]')
+#    
+#    
+#    plt.figure()
+#    plt.plot(Y[:,3],v_wtmn-v_day_wtmn,'.')
+#    plt.title('Fourth Mode')
+#    plt.ylabel('V_wtmn - V_day_wtmn')
+#    plt.xlabel('Y[:,3]')
+#    
     plt.show()
     
-    plt.imshow(p*1000, aspect = 'auto', interpolation = 'nearest')
-    plt.colorbar()
+    plt.plot(v_adjust,'.')
     plt.show()
+    
+    print(p)
               
 
 def generate_rvs(star_name, date, template_path, int_guess = 0.1, alpha = 0.2, residual_limit = 0.5,runs = 1, total_runs = 5):
@@ -808,7 +903,7 @@ def obs_creation_loop(star_name):
                     print(fit)
                     create_observation_fits('11dec30096o.fits',fit.decode('utf-8'),star[8][i].decode('utf-8'),'/priv/avatar/ehold13/obs_corrected/'+star_name+'/')
 
-def wtmn_combination(star_name):
+def wtmn_combination(star_name, order_remove = []):
     """
     Description
     -----------
@@ -818,6 +913,10 @@ def wtmn_combination(star_name):
     ----------
     star_name : type - string
         Name of the star to combine velocities
+    
+    order_remove : type - list
+        Date, observation and the orders that need to be removed to fix a flagged point    
+    
     
     Returns
     -------
@@ -829,6 +928,12 @@ def wtmn_combination(star_name):
     """
     all_rvs = []
     day_rvs = []
+    
+    if len(order_remove) > 0:
+        dates = [order_remove[i][0] for i in range(len(order_remove))]
+        files = [order_remove[i][1] for i in range(len(order_remove))]
+        orders = [order_remove[i][2] for i in range(len(order_remove))]
+    
     for file_date in os.listdir('/home/ehold13/veloce_scripts/veloce_reduction/'+star_name+'/'):
         
         if file_date.endswith('.fits'):
@@ -855,13 +960,18 @@ def wtmn_combination(star_name):
                     for i,weight in enumerate(weights):
                         if np.isinf(weight):
                             weights[i] = 0
-                    if np.nansum(weights) == 0:
-                        order_rv[obs,order] = 0
-                        order_rv_err[obs,order] = 0
+                            
+                    if np.nansum(weights) < 10e-10 or order+65 in [67,69,79,80,95]:
+                        #order_rv[obs,order] = 0
+                        order_rv_err[obs,order] = np.inf
+                    # remove orders which user has flagged as bad
+                    elif file_date[5:11] in dates and obs in files[dates.index(file_date[5:11])] and order in orders[dates.index(file_date[5:11])][obs]:
+                        #order_rv[obs,order] = 0
+                        order_rv_err[obs,order] = np.inf
                     else:
                         order_rv[obs,order] = np.nansum(weights*rvs[order,:])/np.nansum(weights)
                         order_rv_err[obs,order] = 1/np.sqrt(np.nansum(weights))
-                
+                    
                 order_rv_err[obs,:] = np.where(order_rv_err[obs,:]<10e-16,0,order_rv_err[obs,:])
                 # combine orders with weighted-mean
                 weights = 1/order_rv_err[obs,:]**2
@@ -900,7 +1010,7 @@ def wtmn_combination(star_name):
                 day_rvs.append(dispersion_date)
     return all_rvs, day_rvs
 
-def systematic_error_combination(star_name):
+def systematic_error_combination(star_name, order_remove=[]):
     """
     Description
     -----------
@@ -910,6 +1020,9 @@ def systematic_error_combination(star_name):
     ----------
     star_name : type - string
         Name of the star to calculate combined velocities of
+    
+    order_remove : type - list
+        Date, observation and the orders that need to be removed to fix a flagged point    
     
     Returns
     -------
@@ -922,6 +1035,11 @@ def systematic_error_combination(star_name):
     all_rvs = []
     day_rvs = []
     combination = combination_method_two()
+    if len(order_remove) > 0:
+        dates = [order_remove[i][0] for i in range(len(order_remove))]
+        files = [order_remove[i][1] for i in range(len(order_remove))]
+        orders = [order_remove[i][2] for i in range(len(order_remove))]
+     
     for file_date in os.listdir('/home/ehold13/veloce_scripts/veloce_reduction/'+star_name+'/'):
         
         if file_date.endswith('.fits'):
@@ -955,7 +1073,12 @@ def systematic_error_combination(star_name):
                     for i,weight in enumerate(weights):
                         if np.isinf(weight):
                             weights[i] = 0
+                    # remove orders which have extraction errors
                     if np.nansum(weights) < 10e-10 or order+65 in [67,69,79,80,95]:
+                        order_rv[obs,order] = 0
+                        order_rv_err[obs,order] = np.inf
+                    # remove orders which user has flagged as bad
+                    elif len(order_remove)>0 and file_date[5:11] in dates and obs in files[dates.index(file_date[5:11])] and order in orders[dates.index(file_date[5:11])][obs]:
                         order_rv[obs,order] = 0
                         order_rv_err[obs,order] = np.inf
                     else:
@@ -1002,18 +1125,8 @@ def systematic_error_combination(star_name):
                 for i,elem in enumerate(disp_rvs):
                     if elem > abs(med)+std:
                        del dispersion_date[i]
-                all_rvs.extend(dispersion_date) 
-#            weights = 1/fit_rv_err**2
-#            for i,weight in enumerate(weights):
-#                    if np.isinf(abs(weight)):
-#                        weights[i] = 0
-#            if np.nansum(abs(weights))==0:
-#                rv = np.nan
-#                err = np.nan
-#            else:
-#                rv = np.nansum(weights*fit_rv)/np.nansum(weights)
-#                err = 1/np.sqrt(np.nansum(weights))
-#            
+                all_rvs.extend(dispersion_date)
+
             day_rvs.append(dispersion_date)
         
     return all_rvs, day_rvs
@@ -1106,7 +1219,7 @@ def mass(v,T,M_s,i, v_err, T_err, M_s_err,i_err):
     m_err = m  * ((i_err/np.tan(np.deg2rad(i)))**2 + (1/3 * T_err/T)**2 + (abs(v_err)/abs(v))**2 + (2/3 * M_s_err/M_s)**2)**0.5
     return m.to(u.M_earth), m_err.to(u.M_earth)
                
-def flag_rvs(star_name, combination = 'systematic', plot = True, flagged_points = []): 
+def flag_rvs(star_name, combination = 'systematic', plot = True, flagged_points = [], order_remove = []): 
     """
     Description
     -----------
@@ -1125,6 +1238,10 @@ def flag_rvs(star_name, combination = 'systematic', plot = True, flagged_points 
         
     flagged_points : type - list
         List of boolean values on whether to include each observation
+        
+    order_remove : type - list
+        Date, observation and the orders that need to be removed to fix a flagged point    
+    
     
     Returns
     -------
@@ -1170,7 +1287,7 @@ def flag_rvs(star_name, combination = 'systematic', plot = True, flagged_points 
     
     # combine the order and fibre rvs depending on what the chosen combination method is
     if combination == 'wtmn':    
-        all_rvs, day_rvs = wtmn_combination(star_name)
+        all_rvs, day_rvs = wtmn_combination(star_name, order_remove)
         if plot:
             xs1 = [((all_rvs[i][0]-epoch)%period)/period for i in range(len(all_rvs))]
         else:
@@ -1180,7 +1297,7 @@ def flag_rvs(star_name, combination = 'systematic', plot = True, flagged_points 
         files1 = [all_rvs[i][3] for i in range(len(all_rvs))]
         
     elif combination == 'systematic':
-        all_rvs, day_rvs = systematic_error_combination(star_name)
+        all_rvs, day_rvs = systematic_error_combination(star_name, order_remove)
         if plot:
             xs1 = [((all_rvs[i][0]-epoch)%period)/period for i in range(len(all_rvs))]
         else:
@@ -1222,41 +1339,7 @@ def flag_rvs(star_name, combination = 'systematic', plot = True, flagged_points 
         yerr = []
         files = []
         med = np.median(ys1)
-        
-        #ws = tk.Tk()
-        #ws.title('Set Upper and Lower RV Bounds')
-        #min_rvs = tk.IntVar(ws)
-        #max_rvs = tk.IntVar(ws)
-        
-        #data1 = {'MJD': xs2,
-        #     'RV': ys2
-        #    }
-            
-        #df1 = DataFrame(data1,columns=['MJD','RV'])
-        #figure1 = plt.Figure(figsize=(12,10), dpi=100)
-        #ax1 = figure1.add_subplot(111)
-        #ax1.set_xlabel('Phase')
-#        ax1.set_ylabel('Velocity (m/s)')
-#        ax1.set_title(star_name)
-#        ax1.scatter(df1['MJD'],df1['RV'], color = 'k')
-#        scatter1= FigureCanvasTkAgg(figure1, ws) 
-#        scatter1.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH)
-#        L1 = tk.Label(ws, text="Minimum")
-#        L1.pack()
-#        min_rv = tk.Entry(ws)
-#        min_rv.pack()
-#        L2 = tk.Label(ws, text="Maximum")
-#        L2.pack()
-#        max_rv = tk.Entry(ws)
-#        max_rv.pack()
-#        
-#        tk.Button(ws,text="Okay",command =lambda:[min_rvs.set(min_rv.get()),max_rvs.set(max_rv.get()),ws.destroy()]).pack()
-#        ws.mainloop()
-#        
-#        
         rej = []
-#        bad = np.where((ys1>max_rvs.get())|(min_rvs.get()>ys1))
-#        rej.extend(bad[0])
         i = 0
         
         while i < len(ys2):
@@ -1311,10 +1394,6 @@ def flag_rvs(star_name, combination = 'systematic', plot = True, flagged_points 
             b = tk.Button(ws, text = 'Flag', command =lambda:[keep.set(0),ws.destroy()]).pack()
             b = tk.Button(ws,text = 'Keep Rest', command =lambda:[j.set(len(ys2)),ws.destroy()]).pack()
             
-            text1 = tk.Label(ws, text = 'File: '+files2[i][0]+', Date (yymmdd): '+files2[i][1]) 
-            text1.configure(font=("Arial", 10, "bold"))
-            text1.pack()
-            
             text = tk.Text(ws)
            
             logs = np.array(glob.glob('/priv/avatar/velocedata/Data/Raw/'+str(files2[i][1])+'/ccd_3/[0-9,A-Z,a-z,_,-]*.log')).flatten()
@@ -1327,6 +1406,17 @@ def flag_rvs(star_name, combination = 'systematic', plot = True, flagged_points 
                 
             f = open(log,'r')
             log = f.readlines()
+            
+            veloce_obs = Table.read('/home/ehold13/veloce_scripts/veloce_observations.fits')
+            star_obs = veloce_obs[veloce_obs['star_names']==star_name][0]
+            
+                      
+            
+            text1 = tk.Label(ws, text = 'File: '+files2[i][0]+', Date (yymmdd): '+files2[i][1]+', # Obs: '+str(np.count_nonzero(star_obs[8] == files2[i][1].encode('utf-8')))) 
+            text1.configure(font=("Arial", 10, "bold"))
+            text1.pack()
+            
+                
             text.insert(tk.INSERT, log) 
            
             text.pack(fill=tk.BOTH, expand=1)
@@ -1370,7 +1460,7 @@ def flag_rvs(star_name, combination = 'systematic', plot = True, flagged_points 
         flagged = [False]*len(xs1)
         return flagged, np.array(list(range(len(xs1)))), xs1, ys1, yerr1, files1, day_rvs
                
-def plot_phase(star_name, combination = 'systematic', plot = True, flagged_points = [], binary = False):
+def plot_phase(star_name, combination = 'systematic', plot = True, flagged_points = [], binary = False,order_remove = []):
     """
     Description
     -----------
@@ -1392,7 +1482,9 @@ def plot_phase(star_name, combination = 'systematic', plot = True, flagged_point
         
     binary : type - boolean (default - False)
         Add in linear component to the velocities to account for binary motion
-        
+    
+    order_remove : type - list
+        Date, observation and the orders that need to be removed to fix a flagged point    
     
     Returns
     -------
@@ -1452,7 +1544,7 @@ def plot_phase(star_name, combination = 'systematic', plot = True, flagged_point
         inclination = star_parameters['inclination']
         inclination_error = star_parameters['inclination_error']
     if plot:
-        flagged_points, flagged_files, inds, phase, velocity, velocity_err, files, day_rvs = flag_rvs(star_name, combination = combination, plot = plot, flagged_points = flagged_points)
+        flagged_points, flagged_files, inds, phase, velocity, velocity_err, files, day_rvs = flag_rvs(star_name, combination = combination, plot = plot, flagged_points = flagged_points, order_remove = order_remove)
         phase = phase[~np.array(flagged_points)]
         velocity = velocity[~np.array(flagged_points)]
         velocity_err = velocity_err[~np.array(flagged_points)]
@@ -1470,7 +1562,7 @@ def plot_phase(star_name, combination = 'systematic', plot = True, flagged_point
         for elem in day_rvs:
 
             dates.extend([elem[i][0] for i in range(len(elem))])
-            dd.append(np.nanmedian([elem[i][0] for i in range(len(elem))]))
+            dd.append(np.nanmean([elem[i][0] for i in range(len(elem))]))
             vels = [elem[i][1]*1000 for i in range(len(elem))]
             vels = np.array(vels)
             velerrs = [elem[i][2]*1000 for i in range(len(elem))]
@@ -1551,12 +1643,14 @@ def plot_phase(star_name, combination = 'systematic', plot = True, flagged_point
         xs = phase
         ys = velocity
         yerr = velocity_err
+    
+    plot_points = np.where(np.array(mnrvs_errs_l)<1e4)
     plt.figure()
     if not plot:
         plt.errorbar(phase,velocity,yerr= velocity_err,fmt='ro')
     if plot:
         plt.errorbar(-0.5+phase,velocity - a.x[1],yerr= velocity_err,fmt='ro')
-        plt.errorbar(-0.5+(dd%period)/period, mnrvs_l - a.x[1], yerr = mnrvs_errs_l, fmt = 'bo')
+        plt.errorbar(np.array(-0.5+((dd-epoch)%period)/period)[plot_points],np.array(mnrvs_l - a.x[1])[plot_points], yerr = np.array(mnrvs_errs_l)[plot_points], fmt = 'bo')
         plt.plot(-0.5+x, func(a.x,x,np.array(velocity),np.array(velocity_err),period,epoch,return_fit = True) - a.x[1],'k')
         plt.title(star_name)
     plt.ylabel('Velocity (m/s)')
