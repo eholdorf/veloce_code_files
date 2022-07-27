@@ -451,7 +451,7 @@ def combination_method_three(observation_dir, dispersion_limit = 0.1):
         if fits.endswith('.fits'):
             observations = pyfits.open(observation_dir + fits)
             for obs in range(len(observations['RV'].data[:,0,0])):
-                if np.std(observations['RV'].data[obs,3:,:]) < dispersion_limit:
+                if True: #np.std(observations['RV'].data[obs,3:,:]) < dispersion_limit:
                    
                     median_flux.append(observations['median_flux'].data[obs,:,:])
                     v_all.append(observations['RV'].data[obs,:,:])
@@ -545,35 +545,39 @@ def combination_method_three(observation_dir, dispersion_limit = 0.1):
     plt.ylabel('V_wtmn')
     plt.xlabel('Y[:,3]')
     
-#    plt.figure()
-#    plt.plot(Y[:,0],v_wtmn - v_day_wtmn,'.')
-#    plt.title('First Mode')
-#    plt.ylabel('V_wtmn - V_day_wtmn')
-#    plt.xlabel('Y[:,0]')
-#    
-#    plt.figure()
-#    plt.plot(Y[:,1],v_wtmn - v_day_wtmn,'.')
-#    plt.title('Second Mode')
-#    plt.ylabel('V_wtmn - V_day_wtmn')
-#    plt.xlabel('Y[:,1]')
-#    
-#    
-#    plt.figure()
-#    plt.plot(Y[:,2],v_wtmn-v_day_wtmn,'.')
-#    plt.title('Third Mode')
-#    plt.ylabel('V_wtmn - V_day_wtmn')
-#    plt.xlabel('Y[:,2]')
-#    
-#    
-#    plt.figure()
-#    plt.plot(Y[:,3],v_wtmn-v_day_wtmn,'.')
-#    plt.title('Fourth Mode')
-#    plt.ylabel('V_wtmn - V_day_wtmn')
-#    plt.xlabel('Y[:,3]')
-#    
+    plt.figure()
+    plt.plot(Y[:,0],v_wtmn - v_day_wtmn,'.')
+    plt.title('First Mode')
+    plt.ylabel('V_wtmn - V_day_wtmn')
+    plt.xlabel('Y[:,0]')
+    
+    plt.figure()
+    plt.plot(Y[:,1],v_wtmn - v_day_wtmn,'.')
+    plt.title('Second Mode')
+    plt.ylabel('V_wtmn - V_day_wtmn')
+    plt.xlabel('Y[:,1]')
+    
+    
+    plt.figure()
+    plt.plot(Y[:,2],v_wtmn-v_day_wtmn,'.')
+    plt.title('Third Mode')
+    plt.ylabel('V_wtmn - V_day_wtmn')
+    plt.xlabel('Y[:,2]')
+    
+    
+    plt.figure()
+    plt.plot(Y[:,3],v_wtmn-v_day_wtmn,'.')
+    plt.title('Fourth Mode')
+    plt.ylabel('V_wtmn - V_day_wtmn')
+    plt.xlabel('Y[:,3]')
+    
     plt.show()
     
+    plt.figure()
     plt.plot(v_adjust,'.')
+    
+    plt.figure()
+    plt.plot(v_adjust - v_day_wtmn,'.')
     plt.show()
     
     print(p)
