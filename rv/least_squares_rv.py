@@ -475,6 +475,10 @@ def combination_method_three(observation_dir, dispersion_limit = 0.1):
         vs = elem[1]
         vserr = elem[2]
         ws = 1/vserr**2
+        
+        ws = np.where(np.isinf(ws),0,ws)
+        
+                
         v_day_wtmn.extend([np.nansum(ws*vs)/np.nansum(ws)]*elem[0])
                 
     v_day_wtmn = np.array(v_day_wtmn)
@@ -581,6 +585,25 @@ def combination_method_three(observation_dir, dispersion_limit = 0.1):
     plt.show()
     
     print(p)
+    
+    mn = 0
+    rms = 0
+    count = 0
+    plt.figure()
+    for i in range(len(v_adjust)):
+        if abs(np.array(v_adjust[i]) - np.array(v_day_wtmn)[i]) + v_wtmn_err[i] < 0.015:
+            mn += v_adjust[i] - v_day_wtmn[i]
+            rms += (v_adjust[i]-v_day_wtmn[i])**2
+            count += 1
+            plt.errorbar([i],v_adjust[i] - v_day_wtmn[i],yerr = v_wtmn_err[i],fmt = 'k.',capsize=5)
+            #plt.errorbar([i],v_day_wtmn[i], yerr = v_wtmn_err[i], fmt = 'r.', capsize =5)
+    plt.ylabel('Velocity (m/s)')
+    plt.xlabel('Date')
+    plt.tight_layout()
+    plt.show()
+    print('mean',(mn/count)*1000)
+    print('rms',(rms/count)**0.5 * 1000)
+    
               
 
 def generate_rvs(star_name, date, template_path, int_guess = 0.1, alpha = 0.2, residual_limit = 0.5,runs = 1, total_runs = 5):
