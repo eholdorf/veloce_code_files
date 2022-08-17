@@ -38,7 +38,7 @@ good_obs = (fiber_std < 3*np.median(fiber_std)) & (np.abs(weighted_mean_rv) < 0.
 
 #plt.imshow(good_orders_mn[good_obs], aspect='auto', interpolation='nearest')
 
-fiber_rvs = good_orders_mn
+fiber_rvs = good_orders_mn.copy()
 for ix,obs_rv  in enumerate(fiber_rvs):
     obs_rv -= weighted_mean_rv[ix]
 
