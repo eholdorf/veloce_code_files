@@ -449,13 +449,70 @@ def combination_method_two(observation_dir = '/home/ehold13/veloce_scripts/veloc
     all_order_rvs = np.where(abs(all_order_rvs)>0.5,np.nan, all_order_rvs)
     all_obs_rvs = np.where(abs(all_obs_rvs)>0.5,np.nan,all_obs_rvs)    
     
-    mean_sq_resid = np.nanmean((all_obs_rvs - all_order_rvs)**2,0)
-    
-    print(np.shape(mean_sq_resid))
-    
+    mean_sq_resid = np.nanmean((all_obs_rvs - all_order_rvs)**2,0)    
      
     return mean_sq_resid
-            
+  
+def fibre_velocity_adjustment():
+    ddir = '/home/ehold13/veloce_scripts/veloce_reduction/10700/'
+    allfiles = glob.glob(ddir + '*fits')
+
+    #First, initialise arrays with first file
+    ff = pyfits.open(allfiles[0])
+    rvs = ff[1].data
+    rv_errs = ff[2].data
+    medflux = ff[3].data
+    mjds = ff[4].data['MJDs']
+    bcs = ff[4].data['BCs']
+    orig_files = ff[4].data['Files']
+
+    for fn in allfiles[1:]:
+        ff = pyfits.open(fn)
+        rvs = np.concatenate( (rvs, ff[1].data) )
+        rv_errs = np.concatenate( (rv_errs, ff[2].data) )
+        medflux = np.concatenate( (medflux, ff[3].data) )
+        mjds = np.concatenate( (mjds, ff[4].data['MJDs']) )
+        bcs = np.concatenate( (bcs, ff[4].data['BCs']) )
+        orig_files = np.concatenate( (orig_files, ff[4].data['Files']) )
+
+    #!!!This should be a weighted mean
+    #!!!Also, cutting on mean RV isn't good. 
+    good_orders_mn = np.empty((len(rvs[:,0,0]),len(rvs[0,0,:])))
+    good_orders_err = np.empty((len(rvs[:,0,0]),len(rvs[0,0,:])))
+    
+    #good_orders_mn = np.mean(rvs[:,30:36,:], axis=1)
+    #good_orders_err = np.mean(rv_errs[:,30:36,:], axis=1) 
+
+    for fibre in range(19):
+        weights = 1/rv_errs[:,3:,fibre]**2
+        weights = np.where(np.isinf(weights),0,weights)
+        good_orders_mn[:,fibre] = np.nansum(weights * rvs[:,3:,fibre],axis=1)/np.nansum(weights, axis = 1)
+        good_orders_err[:,fibre] = 1/(np.nansum(weights,axis=1))**0.5
+    
+    #Look for fiber-to-fiber outliers
+    fiber_std = np.std(good_orders_mn, axis=1)
+    straight_mean_rv = np.mean(good_orders_mn, axis=1)
+    weighted_mean_rv = np.sum(good_orders_mn/good_orders_err**2, axis=1)/np.sum(1/good_orders_err**2, axis=1)
+
+    good_obs = (fiber_std < 3*np.median(fiber_std)) & (np.abs(weighted_mean_rv) < 0.08)
+
+    #plt.imshow(good_orders_mn[good_obs], aspect='auto', interpolation='nearest')
+
+    fiber_rvs = good_orders_mn.copy()
+    for ix,obs_rv  in enumerate(fiber_rvs):
+        obs_rv -= weighted_mean_rv[ix]
+
+    fiber_means = np.mean(fiber_rvs[good_obs], axis=0)
+    fiber_std = np.std(fiber_rvs[good_obs], axis=0)
+
+    #Lets correct for this and see if it helps.By only subtracting fiber-to-fiber means, this should 
+    #not bias the radial velocity observations. To check!s
+    corrected_gd_mn = good_orders_mn
+    corrected_gd_mn -= fiber_means
+    corrected_wt_mn = np.sum(corrected_gd_mn/good_orders_err**2, axis=1)/np.sum(1/good_orders_err**2, axis=1)
+    
+    return fiber_means
+          
     
 def combination_method_three(observation_dir, dispersion_limit = 0.1):
     """
@@ -989,7 +1046,7 @@ def wtmn_combination(star_name, order_remove = []):
                         if np.isinf(weight):
                             weights[i] = 0
                             
-                    if np.nansum(weights) < 10e-10 or order+65 in [67,69,79,80,95]:
+                    if np.nansum(weights) < 10e-10 or order+65 in [67,69,79,80,95] or order not in range(30,36):
                         #order_rv[obs,order] = 0
                         order_rv_err[obs,order] = np.inf
                     # remove orders which user has flagged as bad
@@ -1063,7 +1120,8 @@ def systematic_error_combination(star_name, order_remove=[]):
     all_rvs = []
     day_rvs = []
     combination = combination_method_two()
-    print(combination)
+    fib_adj = fibre_velocity_adjustment()
+    #print(combination)
     if len(order_remove) > 0:
         dates = [order_remove[i][0] for i in range(len(order_remove))]
         files = [order_remove[i][1] for i in range(len(order_remove))]
@@ -1085,15 +1143,23 @@ def systematic_error_combination(star_name, order_remove=[]):
             q = np.empty(len(observations['RV'].data[0,:,0]))
             dispersion_date = []
             
+            
             for obs in range(len(observations['RV'].data[:,0,0])):
 
                 rvs = observations['RV'].data[obs,:,:]
                 errors = observations['ERROR'].data[obs,:,:]
                 
+                #for fib in range(19):
+                #    rvs[:,fib] -= fib_adj[fib]
+                
                 #rvs = np.delete(rvs,[4], axis = 1)
                 #errors = np.delete(errors,[4], axis = 1)
 
                 errors = np.where(errors<10e-16,0,errors)
+                
+                #if obs == 0:
+                #    e = np.where(np.nanmean(errors,axis=1)<1e-10,1e5,np.nanmean(errors,axis=1))
+                #    print(np.argsort(e))
 
                 # combine fibres with weighted-mean
                 for order in range(len(rvs[:,0])):
@@ -1105,16 +1171,16 @@ def systematic_error_combination(star_name, order_remove=[]):
                     for i,weight in enumerate(weights):
                         if np.isinf(weight):
                             weights[i] = 0
-                    # remove orders which have extraction errors
+                    
                     if np.nansum(weights) < 10e-10 or order in [2]:
-                        order_rv[obs,order] = 0
+                        #order_rv[obs,order] = 0
                         order_rv_err[obs,order] = np.inf
                     # remove orders which user has flagged as bad
                     elif len(order_remove)>0 and file_date[5:11] in dates and obs in files[dates.index(file_date[5:11])] and order in orders[dates.index(file_date[5:11])][obs]:
-                        order_rv[obs,order] = 0
+                        #order_rv[obs,order] = 0
                         order_rv_err[obs,order] = np.inf
                     elif abs(np.nanmean(abs(rvs[order,:])))>np.nanmean(abs(rvs))+np.std(rvs)/4:
-                        order_rv[obs,order] = 0
+                       # order_rv[obs,order] = 0
                         order_rv_err[obs,order] = np.inf
                     
                     else:
@@ -1697,17 +1763,19 @@ def plot_phase(star_name, combination = 'systematic', plot = True, flagged_point
         yerr = velocity_err
     
     plot_points = np.where(np.array(mnrvs_errs_l)<1e4)
-    plt.figure()
-    if not plot:
-        plt.errorbar(phase,velocity,yerr= velocity_err,fmt='ro')
+    
+    #if not plot:
+        #plt.errorbar(phase,velocity,yerr= velocity_err,fmt='ro')
+        
     if plot:
+        plt.figure()
         plt.errorbar(-0.5+phase,velocity - a.x[1],yerr= velocity_err,fmt='ro')
         plt.errorbar(np.array(-0.5+((dd-epoch)%period)/period)[plot_points],np.array(mnrvs_l - a.x[1])[plot_points], yerr = np.array(mnrvs_errs_l)[plot_points], fmt = 'bo')
         plt.plot(-0.5+x, func(a.x,x,np.array(velocity),np.array(velocity_err),period,epoch,return_fit = True) - a.x[1],'k')
         plt.title(star_name)
-    plt.ylabel('Velocity (m/s)')
-    plt.xlabel('Phase')
-    plt.show()
+        plt.ylabel('Velocity (m/s)')
+        plt.xlabel('Phase')
+        plt.show()
     
     
     # if not plotting, than looking at the mean and rms velocities
@@ -1752,12 +1820,9 @@ def plot_phase(star_name, combination = 'systematic', plot = True, flagged_point
         rms = 0
         count = 0
         plt.figure()
-        ys = np.where(abs(ys)<100,ys,np.nan)
-        mnrvs = np.where(abs(mnrvs)<100,mnrvs,np.nan)
+        ys = np.where(abs(ys)<40,ys,np.nan)
+        mnrvs = np.where(abs(mnrvs)<40,mnrvs,np.nan)
         
-        #print(mnrvs_err)
-        #print(yerr)
-        print(len(mnrvs_err))
         for i in range(len(mnrvs)):
             if True:
                 if not np.isnan(mnrvs[i]):
@@ -1766,12 +1831,12 @@ def plot_phase(star_name, combination = 'systematic', plot = True, flagged_point
                     rms += (mnrvs[i] - np.nanmean(mnrvs))**2
                     count += 1
                     #plt.errorbar(times[i], ys[i] - np.nanmean(ys),yerr = yerr[i],fmt = 'k.',capsize=5)
-                    plt.errorbar(times[i], mnrvs[i]- np.nanmean(mnrvs), yerr = mnrvs_err[i], fmt = 'r.', capsize =5)
+                    plt.errorbar(times[i], mnrvs[i]- np.nanmean(mnrvs), yerr = mnrvs_err[i], fmt = 'k.', capsize =5)
         plt.ylabel('Velocity (m/s)')
         plt.xlabel('Date')
         plt.tight_layout()
         plt.show()
-        print('mean',mn/count)
+        #print('mean',mn/count)
         print('rms',(rms/count)**0.5)
     
     if not plot:
