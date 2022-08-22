@@ -370,18 +370,24 @@ def combination_method_two(observation_dir = '/home/ehold13/veloce_scripts/veloc
             
             order_rv_err = np.empty((len(observations['RV'].data[:,0,0]),len(observations['RV'].data[0,:,0])))
             
-            fit_rv = np.empty(len(observations['RV'].data[:,0,0]))
-            fit_rv_err = np.empty(len(observations['RV'].data[:,0,0]))
-                    
+            #fit_rv = np.empty(len(observations['RV'].data[:,0,0]))
+            #fit_rv_err = np.empty(len(observations['RV'].data[:,0,0]))
+            
+            fit_rv = np.empty(len(observations['RV'].data[0,:,0]))
+            fit_rv_err = np.empty(len(observations['RV'].data[0,:,0]))
+            
+            
+                   
             # for each observation on this date check to see if have low dispersion (i.e. is a good observation)
             for obs in range(len(observations['RV'].data[:,0,0])):
                 if np.std(observations['RV'].data[obs,3:,:]) < dispersion_limit:
                     for obs in range(len(observations['RV'].data[:,0,0])):
 
                         rvs = observations['RV'].data[obs,:,:]
+                        
                         errors = observations['ERROR'].data[obs,:,:]
 
-                        errors = np.where(errors<10e-16,0,errors)
+                        #errors = np.where(errors<10e-16,0,errors)
 
                         # combine fibres with weighted-mean
                         for order in range(len(rvs[:,0])):
@@ -390,32 +396,49 @@ def combination_method_two(observation_dir = '/home/ehold13/veloce_scripts/veloc
                                 if np.isinf(weight):
                                     weights[i] = 0
                             if np.nansum(weights) == 0:
-                                order_rv[obs,order] = 0
-                                order_rv_err[obs,order] = 0
+                                order_rv[obs,order] = np.nan
+                                order_rv_err[obs,order] = np.nan
                             else:
                                 order_rv[obs,order] = np.nansum(weights*rvs[order,:])/np.nansum(weights)
                                 order_rv_err[obs,order] = 1/np.sqrt(np.nansum(weights))
                         
-                        order_rv_err[obs,:] = np.where(order_rv_err[obs,:]<10e-16,0,order_rv_err[obs,:])
-                        # combine orders with weighted-mean
-                        weights = 1/order_rv_err[obs,:]**2
-
-                        for i,weight in enumerate(weights):
-                            if np.isinf(weight):
-                                weights[i] = 0
-                       
-                        if np.nansum(abs(weights))==0:
-                            fit_rv[obs] = np.nan
-                            fit_rv_err[obs] = np.nan
+                        #order_rv_err[obs,:] = np.where(order_rv_err[obs,:]<10e-16,0,order_rv_err[obs,:])
                         
-                        else:
-                            fit_rv[obs] = np.nansum(weights*order_rv[obs,:])/np.nansum(weights)
-                            fit_rv_err[obs] = 1/np.sqrt(np.nansum(abs(weights)))
+                        for ords in range(40):
+                            weights = 1/order_rv_err[:,ords]**2
+                            
+                            for i, weight in enumerate(weights):
+                                if np.isinf(weight):
+                                    weights[i] = 0
+                                    
+                            if np.nansum(abs(weights))==0:
+                                fit_rv[obs] = np.nan
+                                fit_rv_err[obs] = np.nan
+                            else:
+                                fit_rv[ords] = np.nansum(weights*order_rv[:,ords])/np.nansum(weights)
+                                fit_rv_err[ords] = 1/np.sqrt(np.nansum(abs(weights)))
+                        
+                        # combine orders with weighted-mean
+                        #weights = 1/order_rv_err[obs,:]**2
+
+                        #for i,weight in enumerate(weights):
+                        #    if np.isinf(weight):
+                        #        weights[i] = 0
+                       
+                        #if np.nansum(abs(weights))==0:
+                        #    fit_rv[obs] = np.nan
+                        #    fit_rv_err[obs] = np.nan
+                        
+                        #else:
+                        #    fit_rv[obs] = np.nansum(weights*order_rv[obs,:])/np.nansum(weights)
+                        #    fit_rv_err[obs] = 1/np.sqrt(np.nansum(abs(weights)))
 
                                
-            all_obs_rvs.extend(fit_rv)
+            #all_obs_rvs.extend(fit_rv)
             all_order_rvs.extend(order_rv)
-
+    
+    all_obs_rvs = fit_rv
+    
     all_obs_rvs = np.array(all_obs_rvs)
     all_order_rvs = np.array(all_order_rvs)
     
@@ -423,7 +446,12 @@ def combination_method_two(observation_dir = '/home/ehold13/veloce_scripts/veloc
     
     all_order_rvs= np.where(np.isinf(all_order_rvs),np.nan,all_order_rvs)
     
-    mean_sq_resid = np.nanmedian((all_obs_rvs - np.transpose(all_order_rvs))**2,1)
+    all_order_rvs = np.where(abs(all_order_rvs)>0.5,np.nan, all_order_rvs)
+    all_obs_rvs = np.where(abs(all_obs_rvs)>0.5,np.nan,all_obs_rvs)    
+    
+    mean_sq_resid = np.nanmean((all_obs_rvs - all_order_rvs)**2,0)
+    
+    print(np.shape(mean_sq_resid))
     
      
     return mean_sq_resid
@@ -549,39 +577,11 @@ def combination_method_three(observation_dir, dispersion_limit = 0.1):
     plt.ylabel('V_wtmn')
     plt.xlabel('Y[:,3]')
     
-    plt.figure()
-    plt.plot(Y[:,0],v_wtmn - v_day_wtmn,'.')
-    plt.title('First Mode')
-    plt.ylabel('V_wtmn - V_day_wtmn')
-    plt.xlabel('Y[:,0]')
-    
-    plt.figure()
-    plt.plot(Y[:,1],v_wtmn - v_day_wtmn,'.')
-    plt.title('Second Mode')
-    plt.ylabel('V_wtmn - V_day_wtmn')
-    plt.xlabel('Y[:,1]')
-    
-    
-    plt.figure()
-    plt.plot(Y[:,2],v_wtmn-v_day_wtmn,'.')
-    plt.title('Third Mode')
-    plt.ylabel('V_wtmn - V_day_wtmn')
-    plt.xlabel('Y[:,2]')
-    
-    
-    plt.figure()
-    plt.plot(Y[:,3],v_wtmn-v_day_wtmn,'.')
-    plt.title('Fourth Mode')
-    plt.ylabel('V_wtmn - V_day_wtmn')
-    plt.xlabel('Y[:,3]')
-    
     plt.show()
     
     plt.figure()
     plt.plot(v_adjust,'.')
-    
-    plt.figure()
-    plt.plot(v_adjust - v_day_wtmn,'.')
+  
     plt.show()
     
     print(p)
@@ -589,14 +589,15 @@ def combination_method_three(observation_dir, dispersion_limit = 0.1):
     mn = 0
     rms = 0
     count = 0
+    v_adjust = np.where(abs(v_adjust)<0.1,v_adjust,np.nan)
     plt.figure()
     for i in range(len(v_adjust)):
-        if abs(np.array(v_adjust[i]) - np.array(v_day_wtmn)[i]) + v_wtmn_err[i] < 0.015:
-            mn += v_adjust[i] - v_day_wtmn[i]
-            rms += (v_adjust[i]-v_day_wtmn[i])**2
+        if not np.isnan(v_adjust[i]):
+            mn += v_adjust[i] - np.nanmean(v_adjust)
+            rms += (v_adjust[i] - np.nanmean(v_adjust))**2
             count += 1
-            plt.errorbar([i],v_adjust[i] - v_day_wtmn[i],yerr = v_wtmn_err[i],fmt = 'k.',capsize=5)
-            #plt.errorbar([i],v_day_wtmn[i], yerr = v_wtmn_err[i], fmt = 'r.', capsize =5)
+            plt.errorbar([i],(v_adjust[i] - np.nanmean(v_adjust))*1000,yerr = v_wtmn_err[i]*1000,fmt = 'k.',capsize=5)
+            
     plt.ylabel('Velocity (m/s)')
     plt.xlabel('Date')
     plt.tight_layout()
@@ -1062,6 +1063,7 @@ def systematic_error_combination(star_name, order_remove=[]):
     all_rvs = []
     day_rvs = []
     combination = combination_method_two()
+    print(combination)
     if len(order_remove) > 0:
         dates = [order_remove[i][0] for i in range(len(order_remove))]
         files = [order_remove[i][1] for i in range(len(order_remove))]
@@ -1087,6 +1089,9 @@ def systematic_error_combination(star_name, order_remove=[]):
 
                 rvs = observations['RV'].data[obs,:,:]
                 errors = observations['ERROR'].data[obs,:,:]
+                
+                #rvs = np.delete(rvs,[4], axis = 1)
+                #errors = np.delete(errors,[4], axis = 1)
 
                 errors = np.where(errors<10e-16,0,errors)
 
@@ -1101,20 +1106,26 @@ def systematic_error_combination(star_name, order_remove=[]):
                         if np.isinf(weight):
                             weights[i] = 0
                     # remove orders which have extraction errors
-                    if np.nansum(weights) < 10e-10 or order+65 in [67,69,79,80,95]:
+                    if np.nansum(weights) < 10e-10 or order in [2]:
                         order_rv[obs,order] = 0
                         order_rv_err[obs,order] = np.inf
                     # remove orders which user has flagged as bad
                     elif len(order_remove)>0 and file_date[5:11] in dates and obs in files[dates.index(file_date[5:11])] and order in orders[dates.index(file_date[5:11])][obs]:
                         order_rv[obs,order] = 0
                         order_rv_err[obs,order] = np.inf
+                    elif abs(np.nanmean(abs(rvs[order,:])))>np.nanmean(abs(rvs))+np.std(rvs)/4:
+                        order_rv[obs,order] = 0
+                        order_rv_err[obs,order] = np.inf
+                    
                     else:
                         order_rv[obs,order] = np.nansum(weights*rvs[order,:])/np.nansum(weights)
                         order_rv_err[obs,order] = 1/np.sqrt(np.nansum(weights))
-                        q[order] = np.sqrt(np.nanmax([combination[order]**2 - order_rv_err[obs,order]**2,0]))   
+                        q[order] = np.sqrt(np.nanmax([combination[order] - order_rv_err[obs,order]**2,0]))   
+                
                 for i, value in enumerate(q):
-                    if value > 400:
+                    if value > 0.02:
                         q[i] = np.inf
+                        
                 order_rv_err[obs,:] = np.sqrt(order_rv_err[obs,:]**2 + q**2)
                  
                 
@@ -1144,13 +1155,13 @@ def systematic_error_combination(star_name, order_remove=[]):
             
             disp_rvs = [dispersion_date[i][1] for i in range(len(dispersion_date))]
             
-            if np.nanstd(disp_rvs)<1:
+            if np.nanstd(disp_rvs)<0.1:
                 all_rvs.extend(dispersion_date)  
             else:
                 std = np.std(disp_rvs)
                 med = np.median(disp_rvs)
                 for i,elem in enumerate(disp_rvs):
-                    if elem > abs(med)+std:
+                    if elem > abs(med)+0.1:
                        del dispersion_date[i]
                 all_rvs.extend(dispersion_date)
 
@@ -1370,10 +1381,16 @@ def flag_rvs(star_name, combination = 'systematic', plot = True, flagged_points 
         i = 0
         
         while i < len(ys2):
-            k = np.where(abs(ys1-ys2[i])<1e-10)[0][0]
-            val = ys1[i]
             ws = tk.Tk()
             ws.title('Keep Point?')
+            if np.isnan(ys2[i]):
+                ws.mainloop()
+                i += 1
+                continue
+            k = np.where(abs(ys1-ys2[i])<1e-10)[0][0]
+            
+            val = ys1[i]
+            
             keep = tk.BooleanVar(ws)
             keep.set(1)
             j = tk.IntVar(ws)  
@@ -1487,7 +1504,7 @@ def flag_rvs(star_name, combination = 'systematic', plot = True, flagged_points 
         flagged = [False]*len(xs1)
         return flagged, np.array(list(range(len(xs1)))), xs1, ys1, yerr1, files1, day_rvs
                
-def plot_phase(star_name, combination = 'systematic', plot = True, flagged_points = [], binary = False,order_remove = []):
+def plot_phase(star_name, combination = 'systematic', plot = True, flagged_points = [], binary = False,order_remove = [], remove_dates = []):
     """
     Description
     -----------
@@ -1576,8 +1593,8 @@ def plot_phase(star_name, combination = 'systematic', plot = True, flagged_point
         velocity = velocity[~np.array(flagged_points)]
         velocity_err = velocity_err[~np.array(flagged_points)]
     else:
-        flagged_points,inds, phase, velocity, velocity_err, files, day_rvs = flag_rvs(star_name, combination = combination, plot = plot, flagged_points = flagged_points)
-               
+        flagged_points,inds, phase, velocity, velocity_err, files, day_rvs = flag_rvs(star_name, combination = combination, plot = plot, flagged_points = flagged_points, order_remove = order_remove)
+           
     if True:
         mnrvs = []
         dates = []
@@ -1648,9 +1665,17 @@ def plot_phase(star_name, combination = 'systematic', plot = True, flagged_point
     if plot:                
         init_cond = [(max(velocity)-min(velocity))/2,np.nanmedian(velocity)]
         print(init_cond)
-            
-        a = optimise.least_squares(func,x0 = init_cond, args=(np.array(phase),np.array(velocity),np.array(velocity_err),period,epoch))
         
+        try:    
+            a = optimise.least_squares(func,x0 = init_cond, args=(np.array(phase),np.array(velocity),np.array(velocity_err),period,epoch))
+        except ValueError:
+            velocity_err = np.where(np.isinf(abs(velocity_err)),1e5,velocity_err)
+            velocity_err = np.where(np.isnan(velocity_err),1e5,velocity_err)
+            velocity = np.where(np.isnan(velocity),0,velocity)
+            
+            plt.plot(velocity,'.')
+            plt.show()
+            a = optimise.least_squares(func,x0 = init_cond, args=(np.array(phase),np.array(velocity),np.array(velocity_err),period,epoch))
         if a.success:
             try:
                 cov = np.linalg.inv(np.dot(a.jac.T,a.jac))  
@@ -1688,36 +1713,60 @@ def plot_phase(star_name, combination = 'systematic', plot = True, flagged_point
     # if not plotting, than looking at the mean and rms velocities
     if not plot:
         mnrvs = []
+        mnrvs_err = []
         times = []
         for elem in day_rvs:
+        
             dates = [elem[i][0] for i in range(len(elem))]
+            
             vels = [elem[i][1]*1000 for i in range(len(elem))]
+            
             velerrs = [elem[i][2]*1000 for i in range(len(elem))]
+            
             vels = np.array(vels)
             velerrs = np.array(velerrs)
-            times.extend(Time(dates, format='mjd').to_datetime())
-            w = 1/velerrs**2
-            for i, weight in enumerate(w):
-                if np.isinf(abs(weight)):
-                            weights[i] = 0
-            if np.nansum(abs(w))==0:
-                mnrvs.extend([np.nan]*len(elem))
+            t = Time(np.mean([elem[i][0] for i in range(len(elem))]), format='mjd').to_datetime()
+            
+            if True:
+                times.extend([t])
                 
-            else:
-                mnrvs.extend([np.nansum(w*vels)/np.nansum(w)]*len(elem))
                 
-        
+                velerrs = np.where(velerrs>1e4, np.inf, velerrs)
+                w = 1/velerrs**2
+                for i, weight in enumerate(w):
+                    if np.isinf(abs(weight)):
+                                weights[i] = 0
+                                vels[i] = 0
+                                
+                if np.nansum(abs(w))==0:
+                    mnrvs.extend([np.nan])
+                    mnrvs_err.extend([np.nan])
+                    
+                else:
+                    mnrvs.extend([np.nansum(w*vels)/np.nansum(w)])
+                    mnrvs_err.extend([1/np.nansum(w)**0.5])
+                    
+        mnrvs = np.array(mnrvs)
+        mnrvs_err = np.array(mnrvs_err)
         mn = 0
         rms = 0
         count = 0
         plt.figure()
-        for i in range(len(yerr)):
-            if abs(np.array(ys[i]) - np.array(mnrvs)[i]) + yerr[i] < 15:
-                mn += ys[i] - mnrvs[i]
-                rms += (ys[i] - mnrvs[i])**2
-                count += 1
-                plt.errorbar(times[i], ys[i] - mnrvs[i],yerr = yerr[i],fmt = 'k.',capsize=5)
-                plt.errorbar(times[i], mnrvs[i], yerr = yerr[i], fmt = 'r.', capsize =5)
+        ys = np.where(abs(ys)<100,ys,np.nan)
+        mnrvs = np.where(abs(mnrvs)<100,mnrvs,np.nan)
+        
+        #print(mnrvs_err)
+        #print(yerr)
+        print(len(mnrvs_err))
+        for i in range(len(mnrvs)):
+            if True:
+                if not np.isnan(mnrvs[i]):
+                    mn += mnrvs[i] - np.nanmean(mnrvs)
+                    #rms += (ys[i] - np.nanmean(ys))**2
+                    rms += (mnrvs[i] - np.nanmean(mnrvs))**2
+                    count += 1
+                    #plt.errorbar(times[i], ys[i] - np.nanmean(ys),yerr = yerr[i],fmt = 'k.',capsize=5)
+                    plt.errorbar(times[i], mnrvs[i]- np.nanmean(mnrvs), yerr = mnrvs_err[i], fmt = 'r.', capsize =5)
         plt.ylabel('Velocity (m/s)')
         plt.xlabel('Date')
         plt.tight_layout()
