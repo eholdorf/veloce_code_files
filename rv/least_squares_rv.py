@@ -336,123 +336,7 @@ def test_rv_chi2(params, rvs, lwave, spect, spect_err, template, lwave0, dlwave)
         resid = rv_fitting_eqn(thisparams, lwave, spect, spect_err, template, lwave0, dlwave)
         chi2s[i] = np.sum(resid**2)
     return chi2s
-    
 
-def combination_method_two(observation_dir = '/home/ehold13/veloce_scripts/veloce_reduction/10700/', dispersion_limit = 0.1):
-    """
-    Description
-    -----------
-    This function will compute the mean square residual for all files in the observation_dir
-    
-    Parameters
-    ----------
-    observation_dir : type - string
-        The folder where the files are to compute the mean square residual for each order_index
-    
-    dispersion_limit : type - float64
-        The dispersion between fibres that will be tolerated
-    
-    Returns
-    -------
-    mean_sq_resid : type - numpy nd-array
-        The mean square residuals for each of the orders
-    """
-    all_obs_rvs = []
-    all_order_rvs = []
-    
-    # iterate over the Tau Ceti Observations
-    for fit_index,fits in enumerate(os.listdir(observation_dir)):
-        if fits.endswith('.fits'):  # fits in ['fits_191211.fits']:  #fits.endswith('.fits'):
-            observations = pyfits.open(observation_dir + fits)
-            
-            # now take weighted mean over the fibres to get a velocity per order for each observation
-            order_rv = np.empty((len(observations['RV'].data[:,0,0]),len(observations['RV'].data[0,:,0])))
-            
-            order_rv_err = np.empty((len(observations['RV'].data[:,0,0]),len(observations['RV'].data[0,:,0])))
-            
-            #fit_rv = np.empty(len(observations['RV'].data[:,0,0]))
-            #fit_rv_err = np.empty(len(observations['RV'].data[:,0,0]))
-            
-            fit_rv = np.empty(len(observations['RV'].data[0,:,0]))
-            fit_rv_err = np.empty(len(observations['RV'].data[0,:,0]))
-            
-            
-                   
-            # for each observation on this date check to see if have low dispersion (i.e. is a good observation)
-            for obs in range(len(observations['RV'].data[:,0,0])):
-                if np.std(observations['RV'].data[obs,3:,:]) < dispersion_limit:
-                    for obs in range(len(observations['RV'].data[:,0,0])):
-
-                        rvs = observations['RV'].data[obs,:,:]
-                        
-                        errors = observations['ERROR'].data[obs,:,:]
-
-                        #errors = np.where(errors<10e-16,0,errors)
-
-                        # combine fibres with weighted-mean
-                        for order in range(len(rvs[:,0])):
-                            weights =  1/errors[order,:]**2
-                            for i,weight in enumerate(weights):
-                                if np.isinf(weight):
-                                    weights[i] = 0
-                            if np.nansum(weights) == 0:
-                                order_rv[obs,order] = np.nan
-                                order_rv_err[obs,order] = np.nan
-                            else:
-                                order_rv[obs,order] = np.nansum(weights*rvs[order,:])/np.nansum(weights)
-                                order_rv_err[obs,order] = 1/np.sqrt(np.nansum(weights))
-                        
-                        #order_rv_err[obs,:] = np.where(order_rv_err[obs,:]<10e-16,0,order_rv_err[obs,:])
-                        
-                        for ords in range(40):
-                            weights = 1/order_rv_err[:,ords]**2
-                            
-                            for i, weight in enumerate(weights):
-                                if np.isinf(weight):
-                                    weights[i] = 0
-                                    
-                            if np.nansum(abs(weights))==0:
-                                fit_rv[obs] = np.nan
-                                fit_rv_err[obs] = np.nan
-                            else:
-                                fit_rv[ords] = np.nansum(weights*order_rv[:,ords])/np.nansum(weights)
-                                fit_rv_err[ords] = 1/np.sqrt(np.nansum(abs(weights)))
-                        
-                        # combine orders with weighted-mean
-                        #weights = 1/order_rv_err[obs,:]**2
-
-                        #for i,weight in enumerate(weights):
-                        #    if np.isinf(weight):
-                        #        weights[i] = 0
-                       
-                        #if np.nansum(abs(weights))==0:
-                        #    fit_rv[obs] = np.nan
-                        #    fit_rv_err[obs] = np.nan
-                        
-                        #else:
-                        #    fit_rv[obs] = np.nansum(weights*order_rv[obs,:])/np.nansum(weights)
-                        #    fit_rv_err[obs] = 1/np.sqrt(np.nansum(abs(weights)))
-
-                               
-            #all_obs_rvs.extend(fit_rv)
-            all_order_rvs.extend(order_rv)
-    
-    all_obs_rvs = fit_rv
-    
-    all_obs_rvs = np.array(all_obs_rvs)
-    all_order_rvs = np.array(all_order_rvs)
-    
-    all_obs_rvs = np.where(np.isinf(all_obs_rvs),np.nan,all_obs_rvs)
-    
-    all_order_rvs= np.where(np.isinf(all_order_rvs),np.nan,all_order_rvs)
-    
-    all_order_rvs = np.where(abs(all_order_rvs)>0.5,np.nan, all_order_rvs)
-    all_obs_rvs = np.where(abs(all_obs_rvs)>0.5,np.nan,all_obs_rvs)    
-    
-    mean_sq_resid = np.nanmean((all_obs_rvs - all_order_rvs)**2,0)    
-     
-    return mean_sq_resid
-  
 def fibre_velocity_adjustment():
     ddir = '/home/ehold13/veloce_scripts/veloce_reduction/10700/'
     allfiles = glob.glob(ddir + '*fits')
@@ -490,9 +374,9 @@ def fibre_velocity_adjustment():
         good_orders_err[:,fibre] = 1/(np.nansum(weights,axis=1))**0.5
     
     #Look for fiber-to-fiber outliers
-    fiber_std = np.std(good_orders_mn, axis=1)
-    straight_mean_rv = np.mean(good_orders_mn, axis=1)
-    weighted_mean_rv = np.sum(good_orders_mn/good_orders_err**2, axis=1)/np.sum(1/good_orders_err**2, axis=1)
+    fiber_std = np.nanstd(good_orders_mn, axis=1)
+    straight_mean_rv = np.nanmean(good_orders_mn, axis=1)
+    weighted_mean_rv = np.nansum(good_orders_mn/good_orders_err**2, axis=1)/np.nansum(1/good_orders_err**2, axis=1)
 
     good_obs = (fiber_std < 3*np.median(fiber_std)) & (np.abs(weighted_mean_rv) < 0.08)
 
@@ -509,10 +393,119 @@ def fibre_velocity_adjustment():
     #not bias the radial velocity observations. To check!s
     corrected_gd_mn = good_orders_mn
     corrected_gd_mn -= fiber_means
-    corrected_wt_mn = np.sum(corrected_gd_mn/good_orders_err**2, axis=1)/np.sum(1/good_orders_err**2, axis=1)
+    corrected_wt_mn = np.nansum(corrected_gd_mn/good_orders_err**2, axis=1)/np.nansum(1/good_orders_err**2, axis=1)
     
     return fiber_means
-          
+    
+
+def combination_method_two(observation_dir = '/home/ehold13/veloce_scripts/veloce_reduction/10700/', dispersion_limit = 1):
+    """
+    Description
+    -----------
+    This function will compute the mean square residual for all files in the observation_dir
+    
+    Parameters
+    ----------
+    observation_dir : type - string
+        The folder where the files are to compute the mean square residual for each order_index
+    
+    dispersion_limit : type - float64
+        The dispersion between fibres that will be tolerated
+    
+    Returns
+    -------
+    mean_sq_resid : type - numpy nd-array
+        The mean square residuals for each of the orders
+    """
+    count = 0
+    #all_obs_rvs = []
+    all_order_rvs = []
+    all_order_rvs_err = []
+    fib_adj = fibre_velocity_adjustment()
+    
+    fit_rv = np.empty(40)
+    fit_rv_err = np.empty(40)
+
+    # iterate over the Tau Ceti Observations
+    for fit_index,fits in enumerate(os.listdir(observation_dir)):
+        if fits.endswith('.fits'):  # fits in ['fits_191211.fits']:  #fits.endswith('.fits'):
+            observations = pyfits.open(observation_dir + fits)
+            
+            # now take weighted mean over the fibres to get a velocity per order for each observation
+            order_rv = np.empty((len(observations['RV'].data[:,0,0]),len(observations['RV'].data[0,:,0])))
+            
+            order_rv_err = np.empty((len(observations['RV'].data[:,0,0]),len(observations['RV'].data[0,:,0])))
+       
+            # for each observation on this date check to see if have low dispersion (i.e. is a good observation)
+            for obs in range(len(observations['RV'].data[:,0,0])):
+                rvs = observations['RV'].data[obs,:,:]
+                for i in range(19):
+                            rvs[:,i] -= fib_adj[i]
+                            
+                errors = observations['ERROR'].data[obs,:,:]
+                
+                if np.std(rvs[30:36,:]) > dispersion_limit:
+                    order_rv[obs,:] = np.nan
+                    order_rv_err[obs,:] = np.nan
+                else:
+                    if True: 
+                        
+                        count += 1
+                        
+
+                        # combine fibres with weighted-mean
+                        for order in range(len(rvs[:,0])):
+                            weights =  1/errors[order,:]**2
+                            
+                            for i,weight in enumerate(weights):
+                                if np.isinf(weight):
+                                    weights[i] = 0
+                            
+                            if np.nansum(weights) == 0:
+                                order_rv[obs,order] = np.nan
+                                order_rv_err[obs,order] = np.nan
+                            else:
+                                order_rv[obs,order] = np.nansum(weights*rvs[order,:])/np.nansum(weights)
+                                order_rv_err[obs,order] = 1/np.sqrt(np.nansum(weights))
+                                               
+            all_order_rvs.extend(order_rv)
+            all_order_rvs_err.extend(order_rv_err)
+            
+    all_order_rvs = np.array(all_order_rvs)
+    all_order_rvs_err = np.array(all_order_rvs_err)
+        
+    
+    for ords in range(40):
+        weights = 1/all_order_rvs_err[:,ords]**2
+                   
+        for i, weight in enumerate(weights):
+            if np.isinf(weight):
+                weights[i] = 0
+                
+        if np.nansum(abs(weights))==0:
+            fit_rv[ords] = np.nan
+            fit_rv_err[ords] = np.nan
+        else:
+            fit_rv[ords] = np.nansum(weights*all_order_rvs[:,ords])/np.nansum(weights)
+            fit_rv_err[ords] = 1/np.sqrt(np.nansum(abs(weights)))
+    
+    all_obs_rvs = fit_rv
+    all_obs_rvs = np.array(all_obs_rvs)
+   
+    
+    all_obs_rvs = np.where(np.isinf(all_obs_rvs),np.nan,all_obs_rvs)
+    
+    all_order_rvs= np.where(np.isinf(all_order_rvs),np.nan,all_order_rvs)
+   
+    mean_sq_resid = np.nanmedian((all_obs_rvs - all_order_rvs)**2,0)  
+    
+    
+     
+    mean_sq_resid = np.where(np.isnan(mean_sq_resid), 1,mean_sq_resid)
+    
+    
+    return mean_sq_resid
+            
     
 def combination_method_three(observation_dir, dispersion_limit = 0.1):
     """
@@ -1099,7 +1092,7 @@ def systematic_error_combination(star_name, order_remove=[]):
     """
     Description
     -----------
-    Includes systematic erros in weighted-mean calculations
+    Includes systematic errors in weighted-mean calculations
     
     Parameters
     ----------
@@ -1149,17 +1142,15 @@ def systematic_error_combination(star_name, order_remove=[]):
                 rvs = observations['RV'].data[obs,:,:]
                 errors = observations['ERROR'].data[obs,:,:]
                 
-                #for fib in range(19):
-                #    rvs[:,fib] -= fib_adj[fib]
+                
+                for fib in range(19):
+                    rvs[:,fib] -= fib_adj[fib]
                 
                 #rvs = np.delete(rvs,[4], axis = 1)
                 #errors = np.delete(errors,[4], axis = 1)
 
                 errors = np.where(errors<10e-16,0,errors)
                 
-                #if obs == 0:
-                #    e = np.where(np.nanmean(errors,axis=1)<1e-10,1e5,np.nanmean(errors,axis=1))
-                #    print(np.argsort(e))
 
                 # combine fibres with weighted-mean
                 for order in range(len(rvs[:,0])):
@@ -1172,7 +1163,7 @@ def systematic_error_combination(star_name, order_remove=[]):
                         if np.isinf(weight):
                             weights[i] = 0
                     
-                    if np.nansum(weights) < 10e-10 or order in [2]:
+                    if np.nansum(weights) < 10e-10:
                         #order_rv[obs,order] = 0
                         order_rv_err[obs,order] = np.inf
                     # remove orders which user has flagged as bad
@@ -1221,18 +1212,18 @@ def systematic_error_combination(star_name, order_remove=[]):
             
             disp_rvs = [dispersion_date[i][1] for i in range(len(dispersion_date))]
             
-            if np.nanstd(disp_rvs)<0.1:
+            if np.nanstd(disp_rvs)<0.03:
                 all_rvs.extend(dispersion_date)  
             else:
                 std = np.std(disp_rvs)
                 med = np.median(disp_rvs)
                 for i,elem in enumerate(disp_rvs):
-                    if elem > abs(med)+0.1:
+                    if abs(elem) > abs(med)+0.03:
                        del dispersion_date[i]
                 all_rvs.extend(dispersion_date)
 
             day_rvs.append(dispersion_date)
-        
+       
     return all_rvs, day_rvs
 
 def func(params,x,y ,yerr,period,epoch,return_fit = False):
@@ -1721,11 +1712,11 @@ def plot_phase(star_name, combination = 'systematic', plot = True, flagged_point
         if binary:
             velocity += a.x[0]*dates
         
-        plt.figure()
-        plt.errorbar(dates,velocity,yerr = velocity_err,fmt='ko')
-        plt.xlabel('MJD')
-        plt.ylabel("Velocity (m/s)")
-        plt.title(star_name)
+        #plt.figure()
+        #plt.errorbar(dates,velocity,yerr = velocity_err,fmt='ko')
+        #plt.xlabel('MJD')
+        #plt.ylabel("Velocity (m/s)")
+        #plt.title(star_name)
         #plt.show()
         
     if plot:                
@@ -1795,6 +1786,7 @@ def plot_phase(star_name, combination = 'systematic', plot = True, flagged_point
             velerrs = np.array(velerrs)
             t = Time(np.mean([elem[i][0] for i in range(len(elem))]), format='mjd').to_datetime()
             
+            
             if True:
                 times.extend([t])
                 
@@ -1820,13 +1812,13 @@ def plot_phase(star_name, combination = 'systematic', plot = True, flagged_point
         rms = 0
         count = 0
         plt.figure()
-        ys = np.where(abs(ys)<40,ys,np.nan)
-        mnrvs = np.where(abs(mnrvs)<40,mnrvs,np.nan)
+        #ys = np.where(abs(ys)<20,ys,np.nan)
+        #mnrvs = np.where(abs(mnrvs)<1000,mnrvs,np.nan)
         
         for i in range(len(mnrvs)):
             if True:
                 if not np.isnan(mnrvs[i]):
-                    mn += mnrvs[i] - np.nanmean(mnrvs)
+                    #mn += mnrvs[i] - np.nanmean(mnrvs)
                     #rms += (ys[i] - np.nanmean(ys))**2
                     rms += (mnrvs[i] - np.nanmean(mnrvs))**2
                     count += 1
@@ -1835,13 +1827,80 @@ def plot_phase(star_name, combination = 'systematic', plot = True, flagged_point
         plt.ylabel('Velocity (m/s)')
         plt.xlabel('Date')
         plt.tight_layout()
-        plt.show()
+        #plt.show()
         #print('mean',mn/count)
         print('rms',(rms/count)**0.5)
     
+    
+    # do plot comparison to Chris
+    t_chris, v_chris, v_err_chris = plot_chris()
+    
+    sorting_chris = np.argsort(t_chris)
+    v_chris = v_chris[sorting_chris]
+    
+    sorting = np.argsort(times)
+    mnrvs = mnrvs[sorting]
+    
+    v_over_chris_err = (mnrvs_err/(mnrvs- np.nanmean(mnrvs))+v_err_chris/v_chris )*(mnrvs- np.nanmean(mnrvs))/v_chris
+    plt.figure()
+    plt.plot(t_chris,(mnrvs- np.nanmean(mnrvs))- v_chris,'ko')
+    plt.figure()
+    plt.hist((mnrvs- np.nanmean(mnrvs))- v_chris)
+    plt.show()
     if not plot:
-        return mn/count, (rms/count)**0.5
+        return (rms/count)**0.5
     else:
         return m,m_err, flagged_points, flagged_files, phase, velocity, velocity_err, dates, mnrvs_l, mnrvs_errs_l,dd
-                           
-                        
+        
+        
+def plot_chris():
+    jds = []
+    v_nightly = []
+    v_nightly_err = []
+    f = open('/home/ehold13/vccf_nightly_velocities.txt','r')
+    f_lines = f.readlines()
+    
+    for i,f_line in enumerate(f_lines[1:]):
+        
+        if i not in [1,2,34,35,48,49,50,51,52,53]:
+            
+            jds.append(float(f_line.split('  ')[1])+0.5)
+            v_nightly.append(-float(f_line.split('  ')[2]))
+            v_nightly_err.append(float(f_line.split('  ')[3]))
+        #else:
+        #    jds.append(float(f_line.split(' ')[2]))
+        #    v_nightly.append(float(f_line.split(' ')[5]))
+        #    v_nightly_err.append(float(f_line.split(' ')[6]))
+    f.close()
+    
+    mean = np.nanmean(v_nightly)
+    rms = (np.sum((np.array(v_nightly)-mean)**2)/len(v_nightly))**0.5
+    print('rms: ',rms)
+    plt.figure()
+    plt.errorbar(Time(jds, format = 'jd').to_datetime(),np.array(v_nightly) - mean,yerr = v_nightly_err,fmt = 'k.', capsize = 5)
+    #plt.show()
+        
+    return Time(jds, format = 'jd').to_datetime(), np.array(v_nightly) - mean, v_nightly_err       
+        
+
+def chris_all():
+    jds = []
+    v = []
+    v_err = []
+    f = open('/home/ehold13/vccf_epoch_velocities.txt','r')
+    f_lines = f.readlines()
+    
+    for i,f_line in enumerate(f_lines[1:]):
+        #print(i,f_line.split('  '))    
+        jds.append(float(f_line.split('  ')[1])+0.5)
+        v.append(float(f_line.split('  ')[2]))
+        v_err.append(float(f_line.split('  ')[3]))
+        
+    f.close()
+    
+    mean = np.nanmean(v)
+    rms = (np.sum((np.array(v)-mean)**2)/(len(v)))**0.5
+    
+    print('rms: ', rms)
+     
+                         
