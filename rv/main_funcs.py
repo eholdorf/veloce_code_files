@@ -70,6 +70,8 @@ def log_scale_interpolation(template_obs, star_obs, template_date, star_date, k=
     """
     # find the observation in the veloce_observations.fits file and store the location in the MSO storage and the airmass
     veloce_obs = Table.read('/home/ehold13/veloce_scripts/veloce_observations.fits')
+    fib_adj =np.array([0.03749626,0.00773229,0.02952238,0.00019696,-0.03108402,0.06446735,0.0327491,0.0125582,0.03954311,-0.00496834,-0.02619418,0.00145404, -0.0292438,-0.0300081,0.00908333,-0.02011224,-0.05026799,0.00820526,-0.05616776])
+    
     if BC:
         template_i = 0
         template_j = 0
@@ -143,7 +145,7 @@ def log_scale_interpolation(template_obs, star_obs, template_date, star_date, k=
         
         # apply the barycentric correction
         if BC:
-            t_w += template_delta_lambda.value*t_w
+            t_w += template_delta_lambda.value*t_w + fib_adj[0]/c.c.to(u.km/u.s).value*t_w
         
         # create a log scale from min wavelength to max wavelength of template with num_points points and save this to the overall wavelength scale
         new_log_w = np.min(t_w)*np.exp(np.log(np.max(t_w)/np.min(t_w))/num_points*np.arange(num_points))
@@ -178,7 +180,7 @@ def log_scale_interpolation(template_obs, star_obs, template_date, star_date, k=
             
             # apply the barycentric correction
             if BC:
-                t_w += template_delta_lambda.value*t_w
+                t_w += template_delta_lambda.value*t_w + fib_adj[fibre-4]/c.c.to(u.km/u.s).value*t_w+ fib_adj[0]/c.c.to(u.km/u.s).value*t_w
             
             #generate a function that will interpolate the flux for new wavelength scale
             t_poly = InterpolatedUnivariateSpline(t_w,t_f,k=k)
@@ -563,6 +565,8 @@ def barycentric_correction(template_obs, star_obs, template_date, star_date, tab
     star_obs_num = 0
     template_spectrum_dir = ''
     star_spectrum_dir = ''
+    
+
     for star in veloce_obs:
         template_j = 0
         star_j = 0

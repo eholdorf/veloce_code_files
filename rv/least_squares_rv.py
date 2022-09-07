@@ -25,6 +25,9 @@ import glob
 import radvel
 import radvel.likelihood
 from radvel.plot import orbit_plots, mcmc_plots
+font = {'family' : 'normal', 'weight' : 'normal', 'size' : 18}
+plt.rc('font', **font)
+
 
 def create_observation_fits(standard, obs_fits, date, save_dir, combine_fibres = False):
     """
@@ -377,8 +380,10 @@ def fibre_velocity_adjustment():
     fiber_std = np.nanstd(good_orders_mn, axis=1)
     straight_mean_rv = np.nanmean(good_orders_mn, axis=1)
     weighted_mean_rv = np.nansum(good_orders_mn/good_orders_err**2, axis=1)/np.nansum(1/good_orders_err**2, axis=1)
-
+    #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     good_obs = (fiber_std < 3*np.median(fiber_std)) & (np.abs(weighted_mean_rv) < 0.08)
+    #good_obs = (fiber_std < 3*np.median(fiber_std))
+   
 
     #plt.imshow(good_orders_mn[good_obs], aspect='auto', interpolation='nearest')
 
@@ -507,7 +512,7 @@ def combination_method_two(observation_dir = '/home/ehold13/veloce_scripts/veloc
     return mean_sq_resid
             
     
-def combination_method_three(observation_dir, dispersion_limit = 0.1):
+def combination_method_three(observation_dir, dispersion_limit = 1):
     """
     Description
     -----------
@@ -519,30 +524,54 @@ def combination_method_three(observation_dir, dispersion_limit = 0.1):
     Returns
     -------
     """
+    combination = combination_method_two()
     median_flux = []
-    
+    num_obs_each_day = []
     v_all = []
     v_all_err = []
     v_days = []
+    jds = []
     # extract the velocities
     for fits in os.listdir(observation_dir):
         if fits.endswith('.fits'):
+            
             observations = pyfits.open(observation_dir + fits)
+            num_obs_each_day.append(len(observations['RV'].data[:,0,0]))
+            jds.extend(observations[4].data['mjds'])
+            
+            if np.std(observations['RV'].data[:,3:,:]) < dispersion_limit:
+                print(fits)
             for obs in range(len(observations['RV'].data[:,0,0])):
                 if True: #np.std(observations['RV'].data[obs,3:,:]) < dispersion_limit:
-                   
+                    
                     median_flux.append(observations['median_flux'].data[obs,:,:])
                     v_all.append(observations['RV'].data[obs,:,:])
                     v_all_err.append(observations['ERROR'].data[obs,:,:])
             # collect all rvs for a given day        
             v_days.append((len(observations['RV'].data[:,0,0]),observations['RV'].data,observations['ERROR'].data))
-
+    
     median_flux = np.array(median_flux)
     v_all = np.array(v_all)
     v_all_err = np.array(v_all_err)
-    order_means = np.mean(np.mean(median_flux,0),1)
-    good_orders = np.where(order_means == order_means)[0]
 
+    # add in the systematic errors
+    for obs in range(len(v_all_err[0,0,:])):
+        print(len(v_all_err[0,:,0]))
+        for i in range(len(v_all_err[0,:,0])):
+            for fib in range(19):
+                
+                q = np.nanmax([combination[i] - v_all_err[obs,i,fib]**2,0])**0.5
+                
+                if q > 0.02:
+                    q = np.inf
+                
+                v_all_err[obs,i,fib] = (q**2 + v_all_err[obs,i,fib]**2)**0.5
+        
+    order_means = np.mean(np.mean(median_flux,0),1)
+    
+    good_orders = np.where(order_means == order_means)[0] # only use orders which have no NaN values for any observation
+    
+    
     median_flux = median_flux[:,good_orders,:]
     v_all = v_all[:,good_orders,:]
     v_all_err = v_all_err[:,good_orders,:]
@@ -574,15 +603,13 @@ def combination_method_three(observation_dir, dispersion_limit = 0.1):
         for i,weight in enumerate(w):
                             if np.isinf(weight):
                                 w[i] = 0
-                       
-        
         v_wtmn[obs] = np.nansum(w*v[obs])/np.nansum(w)
         v_wtmn_err[obs] = 1/np.sqrt(np.nansum(abs(w)))
     
     
     for obs in range(np.shape(median_flux[:,0,0])[0]):
         for order in range(np.shape(median_flux[0,:,0])[0]):
-            median_flux[obs,order,:] /= np.mean(median_flux[obs,order,:])
+            median_flux[obs,order,:] /= np.nanmean(median_flux[obs,order,:])
             #v_wtmn -= np.mean(v_wtmn[obs,order,:])
             
     X = median_flux.reshape((median_flux.shape[0],median_flux.shape[1]*median_flux.shape[2]))
@@ -590,63 +617,104 @@ def combination_method_three(observation_dir, dispersion_limit = 0.1):
     
     W,V = np.linalg.eigh(np.dot(X.T,X))
     
+    font = {'family' : 'normal', 'weight' : 'normal', 'size' : 18}
+    plt.rc('font', **font)
+
+    plt.figure()
+    plt.semilogy(W,'ko')
+    plt.xlabel('Velocity Number')
+    plt.ylabel('Eigenvalue')
+    plt.show()
+    
     A = V[:,-4:]
     
     Y = np.dot(X,A)
     
     p = np.dot(np.dot(np.linalg.inv(np.dot(Y.T,Y)),Y.T),v_wtmn)
     
-    
-    
+    # the p values found from the Tau Ceti data
+    p = [ 1.10673116e-03, 9.50852334e-04, -1.82886853e-03, -8.93942954e-05]
     
     v_adjust = v_wtmn - np.dot(Y,p)
+    
+    v_day = []
+    v_day_err = []
+    mjds_day = []
+    
+    for i,elem in enumerate(num_obs_each_day):
+        if i != 0:
+            v_day.append([v_adjust[sum(num_obs_each_day[0:i]):sum(num_obs_each_day[0:i+1])]])
+            v_day_err.append([v_wtmn_err[sum(num_obs_each_day[0:i]):sum(num_obs_each_day[0:i+1])]])
+            mjds_day.append(np.nanmean(jds[sum(num_obs_each_day[0:i]):sum(num_obs_each_day[0:i+1])]))
+        else:
+            v_day.append([v_adjust[0:elem]])
+            v_day_err.append([v_wtmn_err[0:elem]])
+            mjds_day.append(np.nanmean(jds[0:elem]))
+    v_day1 = []
+    v_day_err1 = []
+    for i,elem in enumerate(v_day):
+        w = 1/np.array(v_day_err[i])**2
+        w = np.where(np.isinf(w),0,w)
+        
+        v_day1.append(np.nansum(w * np.array(elem))/np.nansum(w))
+        v_day_err1.append(1/np.nansum(w)**0.5)
+     
+    v_day1 = np.array(v_day1)
+    plt.errorbar(Time(mjds_day, format='mjd').to_datetime(),(v_day1-np.nanmean(v_day1))*1000,yerr = np.array(v_day_err1)*1000,fmt = 'ko',capsize=5)
+    plt.ylabel('Velocity (m/s)')
+    plt.xlabel('Observation Date')
+    plt.show()
+    
+    print((np.nansum((v_day1-np.nanmean(v_day1))**2)/len(v_day1))**0.5 * 1000)
+    print(np.std((v_day1-np.nanmean(v_day1)))*1000)
     #import pdb; pdb.set_trace()
-    plt.figure()
-    plt.plot(Y[:,0],v_wtmn,'.')
-    plt.title('First Mode')
-    plt.ylabel('V_wtmn')
-    plt.xlabel('Y[:,0]')
+#    plt.figure()
+#    plt.plot(Y[:,0],v_wtmn,'.')
+#    plt.title('First Mode')
+#    plt.ylabel('V_wtmn')
+#    plt.xlabel('Y[:,0]')
+#    
+#    plt.figure()
+#    plt.plot(Y[:,1],v_wtmn,'.')
+#    plt.title('Second Mode')
+#    plt.ylabel('V_wtmn')
+#    plt.xlabel('Y[:,1]')
+#    
+#    
+#    plt.figure()
+#    plt.plot(Y[:,2],v_wtmn,'.')
+#    plt.title('Third Mode')
+#    plt.ylabel('V_wtmn')
+#    plt.xlabel('Y[:,2]')
+#    
+#    
+#    plt.figure()
+#    plt.plot(Y[:,3],v_wtmn,'.')
+#    plt.title('Fourth Mode')
+#    plt.ylabel('V_wtmn')
+#    plt.xlabel('Y[:,3]')
+#    
+#    plt.show()
     
-    plt.figure()
-    plt.plot(Y[:,1],v_wtmn,'.')
-    plt.title('Second Mode')
-    plt.ylabel('V_wtmn')
-    plt.xlabel('Y[:,1]')
-    
-    
-    plt.figure()
-    plt.plot(Y[:,2],v_wtmn,'.')
-    plt.title('Third Mode')
-    plt.ylabel('V_wtmn')
-    plt.xlabel('Y[:,2]')
-    
-    
-    plt.figure()
-    plt.plot(Y[:,3],v_wtmn,'.')
-    plt.title('Fourth Mode')
-    plt.ylabel('V_wtmn')
-    plt.xlabel('Y[:,3]')
-    
-    plt.show()
-    
-    plt.figure()
-    plt.plot(v_adjust,'.')
+#    plt.figure()
+#    plt.plot(v_adjust,'.')
   
-    plt.show()
+#    plt.show()
     
-    print(p)
+    
     
     mn = 0
     rms = 0
     count = 0
-    v_adjust = np.where(abs(v_adjust)<0.1,v_adjust,np.nan)
+    v_adjust = np.where(abs(v_adjust)<0.08,v_adjust,np.nan)
     plt.figure()
     for i in range(len(v_adjust)):
         if not np.isnan(v_adjust[i]):
             mn += v_adjust[i] - np.nanmean(v_adjust)
             rms += (v_adjust[i] - np.nanmean(v_adjust))**2
             count += 1
-            plt.errorbar([i],(v_adjust[i] - np.nanmean(v_adjust))*1000,yerr = v_wtmn_err[i]*1000,fmt = 'k.',capsize=5)
+            
+            plt.errorbar([Time(jds[i], format = 'mjd').to_datetime()],(v_adjust[i] - np.nanmean(v_adjust))*1000,yerr = v_wtmn_err[i]*1000,fmt = 'k.',capsize=5)
             
     plt.ylabel('Velocity (m/s)')
     plt.xlabel('Date')
@@ -657,7 +725,7 @@ def combination_method_three(observation_dir, dispersion_limit = 0.1):
     
               
 
-def generate_rvs(star_name, date, template_path, int_guess = 0.1, alpha = 0.2, residual_limit = 0.5,runs = 1, total_runs = 5):
+def generate_rvs(star_name, date, template_path, int_guess = 0.01, alpha = 0.2, residual_limit = 0.5,runs = 1, total_runs = 5):
     """
     Description
     -----------
@@ -748,8 +816,9 @@ def generate_rvs(star_name, date, template_path, int_guess = 0.1, alpha = 0.2, r
         BCs[fit_index] = BC_star*c.c.to(u.km*u.s**-1).value
                 
         print('\nFitting Observation '+fits+', '+str(int(fit_index)+1)+'/'+str(len(files)))
-
-    
+        
+        #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        #BC_star = 0
         spectrum = observation['spectrum'].data
         wavelength = observation['wavelength'].data
         wavelength += BC_star * wavelength
@@ -813,7 +882,12 @@ def generate_rvs(star_name, date, template_path, int_guess = 0.1, alpha = 0.2, r
                     while runs <= total_runs:    
                         if np.isinf(err).all():
                             bar.next()
-                            continue                
+                            continue    
+                        # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!  
+                        #if BCs[fit_index] >0:
+                        #    initial_cond = [10,0,0,0] 
+                        #else:
+                        #    initial_cond = [-10,0,0,0] 
                         initial_cond = [int_guess,0,0,0]
                         a = optimise.least_squares(rv_fitting_eqn,x0 = initial_cond, args=(log_wave, spect, err, temp_spec, temp_lwave[0], temp_dlwave), \
                             jac=rv_jac, method='lm')
@@ -823,12 +897,7 @@ def generate_rvs(star_name, date, template_path, int_guess = 0.1, alpha = 0.2, r
                                 err[i] = np.inf
                         runs += 1
                     
-                    if order == 130:
-                        plt.figure()
-                        plt.plot(wave,spect,label='original')
-                        plt.plot(wave,rv_fitting_eqn(a.x,log_wave, spect, err, temp_spec, temp_lwave[0], temp_dlwave, return_spec = True),label = 'fitted')
-                        plt.legend()
-                        plt.show()    
+                      
                            
                     if a.success:
                         try:
@@ -1114,7 +1183,7 @@ def systematic_error_combination(star_name, order_remove=[]):
     day_rvs = []
     combination = combination_method_two()
     fib_adj = fibre_velocity_adjustment()
-    #print(combination)
+    #print(fib_adj)
     if len(order_remove) > 0:
         dates = [order_remove[i][0] for i in range(len(order_remove))]
         files = [order_remove[i][1] for i in range(len(order_remove))]
@@ -1140,6 +1209,7 @@ def systematic_error_combination(star_name, order_remove=[]):
             for obs in range(len(observations['RV'].data[:,0,0])):
 
                 rvs = observations['RV'].data[obs,:,:]
+                
                 errors = observations['ERROR'].data[obs,:,:]
                 
                 
@@ -1151,7 +1221,7 @@ def systematic_error_combination(star_name, order_remove=[]):
 
                 errors = np.where(errors<10e-16,0,errors)
                 
-
+                
                 # combine fibres with weighted-mean
                 for order in range(len(rvs[:,0])):
                     ord_std = np.nanstd(rvs[order,:])
@@ -1163,7 +1233,7 @@ def systematic_error_combination(star_name, order_remove=[]):
                         if np.isinf(weight):
                             weights[i] = 0
                     
-                    if np.nansum(weights) < 10e-10:
+                    if np.nansum(weights) < 10e-10 or order in [2]:
                         #order_rv[obs,order] = 0
                         order_rv_err[obs,order] = np.inf
                     # remove orders which user has flagged as bad
@@ -1195,7 +1265,7 @@ def systematic_error_combination(star_name, order_remove=[]):
                 
                 # combine orders with weighted-mean
                 weights = 1/order_rv_err[obs,:]**2
-
+                
                 for i,weight in enumerate(weights):
                     if np.isinf(weight):
                         weights[i] = 0
@@ -1212,14 +1282,19 @@ def systematic_error_combination(star_name, order_remove=[]):
             
             disp_rvs = [dispersion_date[i][1] for i in range(len(dispersion_date))]
             
+            # !!!!!!!!!!!!!!!!!!!!!!!!!!
             if np.nanstd(disp_rvs)<0.03:
-                all_rvs.extend(dispersion_date)  
+                all_rvs.extend(dispersion_date) 
+                
             else:
                 std = np.std(disp_rvs)
                 med = np.median(disp_rvs)
                 for i,elem in enumerate(disp_rvs):
                     if abs(elem) > abs(med)+0.03:
+                       
+                       #dispersion_date[i] = (dispersion_date[i][0],np.nan, np.nan, dispersion_date[i][3])
                        del dispersion_date[i]
+                       del disp_rvs[i]
                 all_rvs.extend(dispersion_date)
 
             day_rvs.append(dispersion_date)
@@ -1720,7 +1795,7 @@ def plot_phase(star_name, combination = 'systematic', plot = True, flagged_point
         #plt.show()
         
     if plot:                
-        init_cond = [(max(velocity)-min(velocity))/2,np.nanmedian(velocity)]
+        init_cond = [(np.nanmax(velocity)-np.nanmin(velocity))/2,np.nanmedian(velocity)]
         print(init_cond)
         
         try:    
@@ -1760,8 +1835,8 @@ def plot_phase(star_name, combination = 'systematic', plot = True, flagged_point
         
     if plot:
         plt.figure()
-        plt.errorbar(-0.5+phase,velocity - a.x[1],yerr= velocity_err,fmt='ro')
-        plt.errorbar(np.array(-0.5+((dd-epoch)%period)/period)[plot_points],np.array(mnrvs_l - a.x[1])[plot_points], yerr = np.array(mnrvs_errs_l)[plot_points], fmt = 'bo')
+        #plt.errorbar(-0.5+phase,velocity - a.x[1],yerr= velocity_err,fmt='bo')
+        plt.errorbar(np.array(-0.5+((dd-epoch)%period)/period)[plot_points],np.array(mnrvs_l - a.x[1])[plot_points], yerr = np.array(mnrvs_errs_l)[plot_points], fmt = 'ro')
         plt.plot(-0.5+x, func(a.x,x,np.array(velocity),np.array(velocity_err),period,epoch,return_fit = True) - a.x[1],'k')
         plt.title(star_name)
         plt.ylabel('Velocity (m/s)')
@@ -1825,69 +1900,70 @@ def plot_phase(star_name, combination = 'systematic', plot = True, flagged_point
                     #plt.errorbar(times[i], ys[i] - np.nanmean(ys),yerr = yerr[i],fmt = 'k.',capsize=5)
                     plt.errorbar(times[i], mnrvs[i]- np.nanmean(mnrvs), yerr = mnrvs_err[i], fmt = 'k.', capsize =5)
         plt.ylabel('Velocity (m/s)')
-        plt.xlabel('Date')
+        plt.xlabel('Observation Date')
         plt.tight_layout()
         #plt.show()
         #print('mean',mn/count)
         print('rms',(rms/count)**0.5)
     
-    
-    # do plot comparison to Chris
-    t_chris, v_chris, v_err_chris = plot_chris()
-    
-    sorting_chris = np.argsort(t_chris)
-    v_chris = v_chris[sorting_chris]
-    
-    sorting = np.argsort(times)
-    mnrvs = mnrvs[sorting]
-    
-    v_over_chris_err = (mnrvs_err/(mnrvs- np.nanmean(mnrvs))+v_err_chris/v_chris )*(mnrvs- np.nanmean(mnrvs))/v_chris
-    plt.figure()
-    plt.plot(t_chris,(mnrvs- np.nanmean(mnrvs))- v_chris,'ko')
-    plt.figure()
-    plt.hist((mnrvs- np.nanmean(mnrvs))- v_chris)
-    plt.show()
+    if not plot:
+        # do plot comparison to Chris
+        t_chris, v_chris, v_err_chris = plot_chris('/home/ehold13/chris_'+star_name+'/vccf_nightly_velocities.txt')
+        
+        sorting_chris = np.argsort(t_chris)
+        v_chris = v_chris[sorting_chris]
+        
+        sorting = np.argsort(times)
+        mnrvs = mnrvs[sorting]
+        
+        plt.figure()
+        plt.plot((mnrvs- np.nanmean(mnrvs)),v_chris, 'ko')
+        plt.ylabel('Cross-Correlation Velocity (m/s)')
+        plt.xlabel('Least-Squares Velocity (m/s)')
+        plt.show()
     if not plot:
         return (rms/count)**0.5
     else:
         return m,m_err, flagged_points, flagged_files, phase, velocity, velocity_err, dates, mnrvs_l, mnrvs_errs_l,dd
         
         
-def plot_chris():
+def plot_chris(nightly_vels_dir):
     jds = []
     v_nightly = []
     v_nightly_err = []
-    f = open('/home/ehold13/vccf_nightly_velocities.txt','r')
+    f = open(nightly_vels_dir,'r')
     f_lines = f.readlines()
     
     for i,f_line in enumerate(f_lines[1:]):
         
-        if i not in [1,2,34,35,48,49,50,51,52,53]:
+        if i not in [1,2,34,35,48,49,50,51,52,53] and nightly_vels_dir == '/home/ehold13/chris_10700/vccf_nightly_velocities.txt':
             
             jds.append(float(f_line.split('  ')[1])+0.5)
             v_nightly.append(-float(f_line.split('  ')[2]))
             v_nightly_err.append(float(f_line.split('  ')[3]))
-        #else:
-        #    jds.append(float(f_line.split(' ')[2]))
-        #    v_nightly.append(float(f_line.split(' ')[5]))
-        #    v_nightly_err.append(float(f_line.split(' ')[6]))
+        elif i not in [0,1,6,7,11,12,13,19,22,28,30,31,32,33,34,35,37,40,47] and i not in list(range(48,71)) and nightly_vels_dir == '/home/ehold13/chris_85512/vccf_nightly_velocities.txt':
+            jds.append(float(f_line.split('  ')[1])+0.5)
+            v_nightly.append(-float(f_line.split('  ')[2]))
+            v_nightly_err.append(float(f_line.split('  ')[3]))
     f.close()
     
     mean = np.nanmean(v_nightly)
     rms = (np.sum((np.array(v_nightly)-mean)**2)/len(v_nightly))**0.5
-    print('rms: ',rms)
+    print('chris rms: ',rms)
     plt.figure()
     plt.errorbar(Time(jds, format = 'jd').to_datetime(),np.array(v_nightly) - mean,yerr = v_nightly_err,fmt = 'k.', capsize = 5)
+    plt.ylabel('Velocity (m/s)')
+    plt.xlabel('Observation Date')
     #plt.show()
         
     return Time(jds, format = 'jd').to_datetime(), np.array(v_nightly) - mean, v_nightly_err       
         
 
-def chris_all():
+def chris_all(all_vels_dir):
     jds = []
     v = []
     v_err = []
-    f = open('/home/ehold13/vccf_epoch_velocities.txt','r')
+    f = open(all_vels_dir,'r')
     f_lines = f.readlines()
     
     for i,f_line in enumerate(f_lines[1:]):
@@ -1901,6 +1977,6 @@ def chris_all():
     mean = np.nanmean(v)
     rms = (np.sum((np.array(v)-mean)**2)/(len(v)))**0.5
     
-    print('rms: ', rms)
+    print('chris rms: ', rms)
      
                          
