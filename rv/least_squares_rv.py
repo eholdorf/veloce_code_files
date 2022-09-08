@@ -534,6 +534,7 @@ def PCA_combination(observation_dir, p = None):
     v_all_err = []
     v_days = []
     jds = []
+    files = []
     # extract the velocities
     for fits in os.listdir(observation_dir):
         if fits.endswith('.fits'):
@@ -545,7 +546,7 @@ def PCA_combination(observation_dir, p = None):
             for obs in range(len(observations['RV'].data[:,0,0])):
                 # here can limit to only include some observations if wish
                 if True:
-                    
+                    files.append(fits)
                     median_flux.append(observations['median_flux'].data[obs,:,:])
                     v_all.append(observations['RV'].data[obs,:,:])
                     v_all_err.append(observations['ERROR'].data[obs,:,:])
@@ -740,7 +741,7 @@ def PCA_combination(observation_dir, p = None):
         plt.show()
         
         print('rms all obs',(rms/count)**0.5 * 1000)
-    return jds, v_adjust, v_wtmn_err, p
+    return jds, v_adjust, v_wtmn_err, files, p
               
 
 def generate_rvs(star_name, date, template_path, int_guess = 0.01, alpha = 0.2, residual_limit = 0.5,runs = 1, total_runs = 5):
@@ -1494,6 +1495,12 @@ def flag_rvs(star_name, combination = 'systematic', plot = True, flagged_points 
         ys1 = [all_rvs[i][1]*1000 for i in range(len(all_rvs))]
         yerr1 = [all_rvs[i][2]*1000 for i in range(len(all_rvs))]
         files1 = [all_rvs[i][3] for i in range(len(all_rvs))]
+    elif combination == 'PCA':
+        mjds, v, v_err, files, p = PCA_combination('/home/ehold13/veloce_scripts/veloce_reduction/'+star_name)
+        xs1 = [((mjds[i]-epoch)%period)/period for i in range(len(mjds))]
+        ys1 = [v[i]*1000 for i in range(len(v))]
+        yerr1 = [v_err[i]*1000 for i in range(len(v))]
+        files1 = [files[i] for i in range(len(files))]
         
     xs1 = np.array(xs1)
     ys1 = np.array(ys1)
