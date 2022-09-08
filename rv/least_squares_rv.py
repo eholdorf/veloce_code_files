@@ -512,7 +512,7 @@ def combination_method_two(observation_dir = '/home/ehold13/veloce_scripts/veloc
     return mean_sq_resid
             
     
-def combination_method_three(observation_dir, dispersion_limit = 1):
+def PCA_combination(observation_dir, p = None):
     """
     Description
     -----------
@@ -524,7 +524,10 @@ def combination_method_three(observation_dir, dispersion_limit = 1):
     Returns
     -------
     """
+    # get the systemtic error for each order
     combination = combination_method_two()
+    
+    # initiate lists
     median_flux = []
     num_obs_each_day = []
     v_all = []
@@ -538,11 +541,10 @@ def combination_method_three(observation_dir, dispersion_limit = 1):
             observations = pyfits.open(observation_dir + fits)
             num_obs_each_day.append(len(observations['RV'].data[:,0,0]))
             jds.extend(observations[4].data['mjds'])
-            
-            if np.std(observations['RV'].data[:,3:,:]) < dispersion_limit:
-                print(fits)
+
             for obs in range(len(observations['RV'].data[:,0,0])):
-                if True: #np.std(observations['RV'].data[obs,3:,:]) < dispersion_limit:
+                # here can limit to only include some observations if wish
+                if True:
                     
                     median_flux.append(observations['median_flux'].data[obs,:,:])
                     v_all.append(observations['RV'].data[obs,:,:])
@@ -550,34 +552,38 @@ def combination_method_three(observation_dir, dispersion_limit = 1):
             # collect all rvs for a given day        
             v_days.append((len(observations['RV'].data[:,0,0]),observations['RV'].data,observations['ERROR'].data))
     
+    # change lists to be arrays
     median_flux = np.array(median_flux)
     v_all = np.array(v_all)
     v_all_err = np.array(v_all_err)
 
     # add in the systematic errors
-    for obs in range(len(v_all_err[0,0,:])):
-        print(len(v_all_err[0,:,0]))
-        for i in range(len(v_all_err[0,:,0])):
-            for fib in range(19):
+    for obs in range(len(v_all_err[:,0,0])):
+        for ords in range(len(v_all_err[0,:,0])):
+            for fib in range(len(v_all_err[0,0,:])):
                 
-                q = np.nanmax([combination[i] - v_all_err[obs,i,fib]**2,0])**0.5
+                q = np.nanmax([combination[ords] - v_all_err[obs,ords,fib]**2,0])**0.5
                 
                 if q > 0.02:
                     q = np.inf
                 
-                v_all_err[obs,i,fib] = (q**2 + v_all_err[obs,i,fib]**2)**0.5
-        
+                v_all_err[obs,ords,fib] = (q**2 + v_all_err[obs,ords,fib]**2)**0.5
+    
+    # get the mean flux for each order    
     order_means = np.mean(np.mean(median_flux,0),1)
     
-    good_orders = np.where(order_means == order_means)[0] # only use orders which have no NaN values for any observation
+    # only use orders which have no NaN values for any observation
+    good_orders = np.where(order_means == order_means)[0] 
     
-    
+    # restrict the data to only include the good orders
     median_flux = median_flux[:,good_orders,:]
     v_all = v_all[:,good_orders,:]
     v_all_err = v_all_err[:,good_orders,:]
     
+    
+    # calculate the wtmn velocity for each day of observations    
     v_day_wtmn = [] 
-    # calculate the wtmn for each day of observations    
+   
     for elem in v_days:
         vs = elem[1]
         vserr = elem[2]
@@ -590,9 +596,12 @@ def combination_method_three(observation_dir, dispersion_limit = 1):
                 
     v_day_wtmn = np.array(v_day_wtmn)
     #import pdb; pdb.set_trace()
+    
+    
     v_wtmn = np.empty(len(v_all)) 
     v_wtmn_err = np.zeros(len(v_all))
     
+    # initiate lists with shape observations x (orders * fibres)
     v = v_all.reshape((v_all.shape[0],v_all.shape[1]*v_all.shape[2]))
     v_err = v_all_err.reshape((v_all_err.shape[0],v_all_err.shape[1]*v_all_err.shape[2]))
     
@@ -610,37 +619,42 @@ def combination_method_three(observation_dir, dispersion_limit = 1):
     for obs in range(np.shape(median_flux[:,0,0])[0]):
         for order in range(np.shape(median_flux[0,:,0])[0]):
             median_flux[obs,order,:] /= np.nanmean(median_flux[obs,order,:])
-            #v_wtmn -= np.mean(v_wtmn[obs,order,:])
             
+    # reshape the flux array to be observations x (orders * fibres)   
     X = median_flux.reshape((median_flux.shape[0],median_flux.shape[1]*median_flux.shape[2]))
-    #v_wtmn = v_wtmn.reshape((v_wtmn.shape[0],v_wtmn.shape[1]*v_wtmn.shape[2]))             
-    
+                 
+    # calculate the eigenvalues and eigenvectors for X, find structures in the flux
     W,V = np.linalg.eigh(np.dot(X.T,X))
     
-    font = {'family' : 'normal', 'weight' : 'normal', 'size' : 18}
-    plt.rc('font', **font)
-
-    plt.figure()
-    plt.semilogy(W,'ko')
-    plt.xlabel('Velocity Number')
-    plt.ylabel('Eigenvalue')
-    plt.show()
+    # plot the eigenvalues
+    if True:
+        plt.figure()
+        plt.semilogy(W,'ko')
+        plt.xlabel('Velocity Number')
+        plt.ylabel('Eigenvalue')
+        plt.show()
     
+    # observed that the dominant eigenvalues were the last four, so save the corresponding eigenvectors
     A = V[:,-4:]
     
+    # calculate 
     Y = np.dot(X,A)
     
-    p = np.dot(np.dot(np.linalg.inv(np.dot(Y.T,Y)),Y.T),v_wtmn)
+    # if not given initial values for the fibre structure, calculate it
+    if p == None:
+        p = np.dot(np.dot(np.linalg.inv(np.dot(Y.T,Y)),Y.T),v_wtmn)
     
-    # the p values found from the Tau Ceti data
-    p = [ 1.10673116e-03, 9.50852334e-04, -1.82886853e-03, -8.93942954e-05]
-    
+    # calculate the adjusted velocities
     v_adjust = v_wtmn - np.dot(Y,p)
     
+    # for each day of observations, calculate the velocity
+    
+    # initiate lists
     v_day = []
     v_day_err = []
     mjds_day = []
     
+    # make list of lists, where each sublist is all of the velocities for that day
     for i,elem in enumerate(num_obs_each_day):
         if i != 0:
             v_day.append([v_adjust[sum(num_obs_each_day[0:i]):sum(num_obs_each_day[0:i+1])]])
@@ -650,6 +664,8 @@ def combination_method_three(observation_dir, dispersion_limit = 1):
             v_day.append([v_adjust[0:elem]])
             v_day_err.append([v_wtmn_err[0:elem]])
             mjds_day.append(np.nanmean(jds[0:elem]))
+    
+    # take weighed mean over each day of velocities
     v_day1 = []
     v_day_err1 = []
     for i,elem in enumerate(v_day):
@@ -660,69 +676,71 @@ def combination_method_three(observation_dir, dispersion_limit = 1):
         v_day_err1.append(1/np.nansum(w)**0.5)
      
     v_day1 = np.array(v_day1)
-    plt.errorbar(Time(mjds_day, format='mjd').to_datetime(),(v_day1-np.nanmean(v_day1))*1000,yerr = np.array(v_day_err1)*1000,fmt = 'ko',capsize=5)
-    plt.ylabel('Velocity (m/s)')
-    plt.xlabel('Observation Date')
-    plt.show()
-    
-    print((np.nansum((v_day1-np.nanmean(v_day1))**2)/len(v_day1))**0.5 * 1000)
-    print(np.std((v_day1-np.nanmean(v_day1)))*1000)
+    # plot the daily velocities and calculate the RMS
+    if True:
+        plt.figure()
+        plt.errorbar(Time(mjds_day, format='mjd').to_datetime(),(v_day1-np.nanmean(v_day1))*1000,yerr = np.array(v_day_err1)*1000,fmt = 'ko',capsize=5)
+        plt.ylabel('Velocity (m/s)')
+        plt.xlabel('Observation Date')
+        plt.show()
+        
+        print((np.nansum((v_day1-np.nanmean(v_day1))**2)/len(v_day1))**0.5 * 1000)
+        print('rms, daily: ',np.std((v_day1-np.nanmean(v_day1)))*1000)
     #import pdb; pdb.set_trace()
-#    plt.figure()
-#    plt.plot(Y[:,0],v_wtmn,'.')
-#    plt.title('First Mode')
-#    plt.ylabel('V_wtmn')
-#    plt.xlabel('Y[:,0]')
-#    
-#    plt.figure()
-#    plt.plot(Y[:,1],v_wtmn,'.')
-#    plt.title('Second Mode')
-#    plt.ylabel('V_wtmn')
-#    plt.xlabel('Y[:,1]')
-#    
-#    
-#    plt.figure()
-#    plt.plot(Y[:,2],v_wtmn,'.')
-#    plt.title('Third Mode')
-#    plt.ylabel('V_wtmn')
-#    plt.xlabel('Y[:,2]')
-#    
-#    
-#    plt.figure()
-#    plt.plot(Y[:,3],v_wtmn,'.')
-#    plt.title('Fourth Mode')
-#    plt.ylabel('V_wtmn')
-#    plt.xlabel('Y[:,3]')
-#    
-#    plt.show()
     
-#    plt.figure()
-#    plt.plot(v_adjust,'.')
-  
-#    plt.show()
+    # plot the velocity for each observation against each mode
+    if False:
+        plt.figure()
+        plt.plot(Y[:,0],v_wtmn,'.')
+        plt.title('First Mode')
+        plt.ylabel('V_wtmn')
+        plt.xlabel('Y[:,0]')
+        
+        plt.figure()
+        plt.plot(Y[:,1],v_wtmn,'.')
+        plt.title('Second Mode')
+        plt.ylabel('V_wtmn')
+        plt.xlabel('Y[:,1]')
+        
+        
+        plt.figure()
+        plt.plot(Y[:,2],v_wtmn,'.')
+        plt.title('Third Mode')
+        plt.ylabel('V_wtmn')
+        plt.xlabel('Y[:,2]')
+        
+        
+        plt.figure()
+        plt.plot(Y[:,3],v_wtmn,'.')
+        plt.title('Fourth Mode')
+        plt.ylabel('V_wtmn')
+        plt.xlabel('Y[:,3]')
+        
+        plt.show()
     
     
-    
-    mn = 0
-    rms = 0
-    count = 0
-    v_adjust = np.where(abs(v_adjust)<0.08,v_adjust,np.nan)
-    plt.figure()
-    for i in range(len(v_adjust)):
-        if not np.isnan(v_adjust[i]):
-            mn += v_adjust[i] - np.nanmean(v_adjust)
-            rms += (v_adjust[i] - np.nanmean(v_adjust))**2
-            count += 1
-            
-            plt.errorbar([Time(jds[i], format = 'mjd').to_datetime()],(v_adjust[i] - np.nanmean(v_adjust))*1000,yerr = v_wtmn_err[i]*1000,fmt = 'k.',capsize=5)
-            
-    plt.ylabel('Velocity (m/s)')
-    plt.xlabel('Date')
-    plt.tight_layout()
-    plt.show()
-    print('mean',(mn/count)*1000)
-    print('rms',(rms/count)**0.5 * 1000)
-    
+    # calculate the RMS for all observations and plot the data
+    if True:
+        mn = 0
+        rms = 0
+        count = 0
+        # just to remove observations that are very wrong velocity
+        v_adjust = np.where(abs(v_adjust)<0.08,v_adjust,np.nan)
+        plt.figure()
+        for i in range(len(v_adjust)):
+            if not np.isnan(v_adjust[i]):
+                rms += (v_adjust[i] - np.nanmean(v_adjust))**2
+                count += 1
+                
+                plt.errorbar([Time(jds[i], format = 'mjd').to_datetime()],(v_adjust[i] - np.nanmean(v_adjust))*1000,yerr = v_wtmn_err[i]*1000,fmt = 'k.',capsize=5)
+                
+        plt.ylabel('Velocity (m/s)')
+        plt.xlabel('Date')
+        plt.tight_layout()
+        plt.show()
+        
+        print('rms all obs',(rms/count)**0.5 * 1000)
+    return jds, v_adjust, v_wtmn_err, p
               
 
 def generate_rvs(star_name, date, template_path, int_guess = 0.01, alpha = 0.2, residual_limit = 0.5,runs = 1, total_runs = 5):
