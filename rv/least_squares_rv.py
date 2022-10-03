@@ -25,7 +25,7 @@ import glob
 import radvel
 import radvel.likelihood
 from radvel.plot import orbit_plots, mcmc_plots
-font = {'family' : 'normal', 'weight' : 'normal', 'size' : 18}
+font = {'family' : 'DejaVu Sans', 'weight' : 'normal', 'size' : 18}
 plt.rc('font', **font)
 
 
@@ -535,6 +535,7 @@ def PCA_combination(observation_dir, p = None):
     v_days = []
     jds = []
     files = []
+    files_date= []
     # extract the velocities
     for fits in os.listdir(observation_dir):
         if fits.endswith('.fits'):
@@ -546,7 +547,8 @@ def PCA_combination(observation_dir, p = None):
             for obs in range(len(observations['RV'].data[:,0,0])):
                 # here can limit to only include some observations if wish
                 if True:
-                    files.append(fits)
+                    files.append(observations[4].data['Files'][obs])
+                    files_date.append(fits[5:11])
                     median_flux.append(observations['median_flux'].data[obs,:,:])
                     v_all.append(observations['RV'].data[obs,:,:])
                     v_all_err.append(observations['ERROR'].data[obs,:,:])
@@ -654,18 +656,36 @@ def PCA_combination(observation_dir, p = None):
     v_day = []
     v_day_err = []
     mjds_day = []
+    day_vels = []
+    files_days = []
+    
+    
     
     # make list of lists, where each sublist is all of the velocities for that day
     for i,elem in enumerate(num_obs_each_day):
+        current_day = []
         if i != 0:
             v_day.append([v_adjust[sum(num_obs_each_day[0:i]):sum(num_obs_each_day[0:i+1])]])
             v_day_err.append([v_wtmn_err[sum(num_obs_each_day[0:i]):sum(num_obs_each_day[0:i+1])]])
             mjds_day.append(np.nanmean(jds[sum(num_obs_each_day[0:i]):sum(num_obs_each_day[0:i+1])]))
+            files_days.append(files[sum(num_obs_each_day[0:i]):sum(num_obs_each_day[0:i+1])])
+            
         else:
             v_day.append([v_adjust[0:elem]])
             v_day_err.append([v_wtmn_err[0:elem]])
             mjds_day.append(np.nanmean(jds[0:elem]))
-    
+            files_days.append(files[0:elem])
+        j = 0
+        while j < elem:
+            if i !=0 :
+                current_day.append((jds[sum(num_obs_each_day[0:i])+j], v_adjust[sum(num_obs_each_day[0:i])+j], v_wtmn_err[sum(num_obs_each_day[0:i])+j], (files[sum(num_obs_each_day[0:i])+j],files_date[sum(num_obs_each_day[0:i])+j])))
+             
+            else:
+                current_day.append((jds[j], v_adjust[j], v_wtmn_err[j], (files[j], files_date[j])))
+            j += 1
+
+            
+        day_vels.append(current_day)
     # take weighed mean over each day of velocities
     v_day1 = []
     v_day_err1 = []
@@ -675,7 +695,7 @@ def PCA_combination(observation_dir, p = None):
         
         v_day1.append(np.nansum(w * np.array(elem))/np.nansum(w))
         v_day_err1.append(1/np.nansum(w)**0.5)
-     
+        
     v_day1 = np.array(v_day1)
     # plot the daily velocities and calculate the RMS
     if True:
@@ -741,10 +761,11 @@ def PCA_combination(observation_dir, p = None):
         plt.show()
         
         print('rms all obs',(rms/count)**0.5 * 1000)
-    return jds, v_adjust, v_wtmn_err, files, p
+        
+    return jds, v_adjust, v_wtmn_err, files, p, day_vels
               
 
-def generate_rvs(star_name, date, template_path, int_guess = 0.01, alpha = 0.2, residual_limit = 0.5,runs = 1, total_runs = 5):
+def generate_rvs(star_name, date, template_path, int_guess = -1, alpha = 0.2, residual_limit = 0.5,runs = 1, total_runs = 5):
     """
     Description
     -----------
@@ -806,7 +827,7 @@ def generate_rvs(star_name, date, template_path, int_guess = 0.01, alpha = 0.2, 
     f = [str(files[i]) for i in range(len(files))] 
 
     orders = list(range(40)) 
-    #orders = [6,7,13,14,17,25,26,27,28,30,31,33,34,35,36,37]
+    
     rvs = np.zeros((len(files),len(orders),19))
     rv_errs = np.zeros((len(files),len(orders),19))
     mses = np.zeros((len(files),len(orders),19))
@@ -870,19 +891,23 @@ def generate_rvs(star_name, date, template_path, int_guess = 0.01, alpha = 0.2, 
             for fibre_index,fibre in enumerate(range(np.shape(spectrum)[2])):
                 try:
                     runs = 1
+                   
                     spect = spectrum[830:3200,order,fibre]
+                    
                     mask = np.isnan(spect)
                     spect = spect[~mask]
                     wave = wavelength[830:3200,order,fibre][~mask].astype(np.float64)
+                    
                     log_wave = np.log(wave)
                     err = error[830:3200,order,fibre][~mask]
+                    
                     
 
 
                     med_flux[fit_index,order_index,fibre_index] = np.median(spect)
                     
                     mask = np.isnan(spect)
-                    scale = np.median(spect[~mask])
+                    scale = np.nanmedian(spect)
                     spect /= scale
                     err /= scale
                     scaled_median = med_flux[fit_index,order_index,fibre_index]/scale
@@ -894,7 +919,7 @@ def generate_rvs(star_name, date, template_path, int_guess = 0.01, alpha = 0.2, 
                         
                     for index, line in enumerate(lines):       
                        err = np.where((line - widths[index] < wave) & (wave < line + widths[index]),-alpha*np.log(abs(spect)),err)
-                       err = np.where(spect>3*abs(scaled_median),np.inf,err)
+                       err = np.where(spect>2*np.nanmedian(spect),np.inf,err)
                         
        
                     
@@ -908,16 +933,18 @@ def generate_rvs(star_name, date, template_path, int_guess = 0.01, alpha = 0.2, 
                         #else:
                         #    initial_cond = [-10,0,0,0] 
                         initial_cond = [int_guess,0,0,0]
-                        a = optimise.least_squares(rv_fitting_eqn,x0 = initial_cond, args=(log_wave, spect, err, temp_spec, temp_lwave[0], temp_dlwave), \
+                        a = optimise.least_squares(rv_fitting_eqn,x0 = initial_cond, args=(log_wave, spect, err, temp_spec, temp_lwave[0], temp_dlwave),
                             jac=rv_jac, method='lm')
                         
                         for i,value in enumerate(a.fun):
                             if abs(value) > residual_limit:
                                 err[i] = np.inf
+                        if a.x[0] < 1:
+                            int_guess = -1
+                        if runs > 1:
+                            int_guess = a.x[0]
                         runs += 1
-                    
-                      
-                           
+         
                     if a.success:
                         try:
                             cov = np.linalg.inv(np.dot(a.jac.T,a.jac))  
@@ -1496,17 +1523,36 @@ def flag_rvs(star_name, combination = 'systematic', plot = True, flagged_points 
         yerr1 = [all_rvs[i][2]*1000 for i in range(len(all_rvs))]
         files1 = [all_rvs[i][3] for i in range(len(all_rvs))]
     elif combination == 'PCA':
-        mjds, v, v_err, files, p = PCA_combination('/home/ehold13/veloce_scripts/veloce_reduction/'+star_name)
-        xs1 = [((mjds[i]-epoch)%period)/period for i in range(len(mjds))]
+        mjds, v, v_err, files, p, day_rvs = PCA_combination('/home/ehold13/veloce_scripts/veloce_reduction/'+star_name+'/')
+        
+        files = []
+        for day in day_rvs:
+            for observ in day:
+                files.append(observ[3])
+        if plot:
+            xs1 = [((mjds[i]-epoch)%period)/period for i in range(len(mjds))]
+        else:
+            xs1 = [mjds[i] for i in range(len(mjds))]
         ys1 = [v[i]*1000 for i in range(len(v))]
         yerr1 = [v_err[i]*1000 for i in range(len(v))]
         files1 = [files[i] for i in range(len(files))]
         
+    
+    idx = 0
+    while idx < len(ys1):
+        if np.isnan(ys1[idx]):
+            ys1[idx] = 0
+            idx += 1
+            
+        else:
+            idx += 1
+    
     xs1 = np.array(xs1)
     ys1 = np.array(ys1)
     yerr1 = np.array(yerr1)
     files1 = np.array(files1)
 
+    
     
     if plot: 
         # sort the points in order of increasing time
@@ -1515,9 +1561,10 @@ def flag_rvs(star_name, combination = 'systematic', plot = True, flagged_points 
         ys1 = ys1[inds]
         yerr1 = yerr1[inds]
         files1 = files1[inds]
-            
+         
         l_xs = len(xs1)
-        orig_files = files1
+        orig_files = files1    
+        
         # remove the flagged points
         if len(flagged_points) != 0:
             xs2 = xs1[~np.array(flagged_points)]
@@ -1529,6 +1576,7 @@ def flag_rvs(star_name, combination = 'systematic', plot = True, flagged_points 
             ys2 = ys1
             yerr2 = yerr1
             files2 = files1
+        
         xs = []
         ys = []
         yerr = []
@@ -1597,7 +1645,9 @@ def flag_rvs(star_name, combination = 'systematic', plot = True, flagged_points 
             
             text = tk.Text(ws)
            
+            
             logs = np.array(glob.glob('/priv/avatar/velocedata/Data/Raw/'+str(files2[i][1])+'/ccd_3/[0-9,A-Z,a-z,_,-]*.log')).flatten()
+            
             log = ''
             for l in logs:
                 if 'vid.log' not in l:

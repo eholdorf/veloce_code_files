@@ -9,6 +9,8 @@ import astropy.units as u
 import re
 import rv.get_observations as g_o
 
+font = {'family' : 'DejaVu Sans', 'weight' : 'normal', 'size' : 18}
+plt.rc('font', **font)
 
 objfns = glob.glob('oversc_logs/[12]?????/OBJECT.lis')
 
@@ -55,7 +57,7 @@ for fn in objfns:
 
                 #If we haven't found the star yet, add a new one!
                 if not found_star and exists('/priv/avatar/velocedata/Data/spec_211202/'+dirname+'/'+args[0][0:10]+'oi_extf.fits'):
-                    print('new star')
+                    
                     uniq_radec.append(radec)
                     star_names.append(name)
                     fits.append([args[0]])
@@ -63,7 +65,7 @@ for fn in objfns:
                     dirs.append([dirname])
                 # if we have found the star, then add the fits file and jd to the list for that star also check to see if the file exists
                 if found_star and exists('/priv/avatar/velocedata/Data/spec_211202/'+dirname+'/'+args[0][0:10]+'oi_extf.fits'):
-                    print('old star')
+                    
                     index = star_names.index(name)
                     fits[index].append(args[0])
                     jds[index].append(float(args[1]))
@@ -230,8 +232,8 @@ if False:
     toi_size = np.array(toi_size)[mask]
 
     plt.figure()
-    plt.rcParams.update({'font.size': 15})
-    plt.scatter(toi_ra[6],toi_dec[6], s=200, c= bp_rp[6],cmap = 'Greys', label = '200')
+    #plt.rcParams.update({'font.size': 15})
+    plt.scatter(toi_ra[6],toi_dec[6], s=bp_rp[6], c= bp_rp[6],cmap = 'Greys', label = '200')
     plt.scatter(toi_ra[50],toi_dec[50], s=toi_size[50], c= bp_rp[50],cmap = 'Greys', label = str(toi_size[50]))
     plt.scatter(toi_ra[51],toi_dec[51], s=toi_size[51], c= bp_rp[51],cmap = 'Greys', label = str(toi_size[51]))
     plt.scatter(toi_ra[10],toi_dec[10], s=toi_size[10], c= bp_rp[10],cmap = 'Greys',label = str(toi_size[10]))
@@ -249,18 +251,19 @@ if False:
     for star in fits:
         directory = g_o.get_folder(star)
         directories.append(directory)
-        print(count)
+        #print(count)
         count+=1
-    print(directories)
+    #print(directories)
     
 for name in tois:
         for toi in toi_info_:
             if str(toi[0][4:]) in str(name):
                 i = toi_index[tois.index(name)]
                 obs_type[i] += toi[1]
+num_dates = [len(set(dirs[i]))-1 for i in range(len(dirs))]
         
-t = Table([star_names, uniq_radec,obs_type,num_obs,Teff,K_pl, jds, fits,dirs], names = ('star_names','ra_dec','obs_type','number_obs','T_eff','K_pl','julian_obs_dates', 'fits_names','directory'))
-t.write('veloce_observations_3.fits', format = 'fits')
+#t = Table([star_names, uniq_radec,obs_type,num_obs,Teff,K_pl, jds, fits,dirs, num_dates], names = ('star_names','ra_dec','obs_type','number_obs','T_eff','K_pl','julian_obs_dates', 'fits_names','directory','num_date_obs'))
+#t.write('veloce_observations.fits', format = 'fits')
 
 
 
