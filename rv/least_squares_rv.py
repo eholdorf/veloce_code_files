@@ -630,11 +630,23 @@ def PCA_combination(observation_dir, p = None):
     W,V = np.linalg.eigh(np.dot(X.T,X))
     
     # plot the eigenvalues
-    if True:
-        plt.figure()
-        plt.semilogy(W,'ko')
-        plt.xlabel('Velocity Number')
-        plt.ylabel('Eigenvalue')
+    if False:
+        fig, ax =  plt.subplots()
+        ax.semilogy(W,'ko')
+        # inset axes....
+        axins = ax.inset_axes([0.2, 0.6, 0.3, 0.3])
+        axins.semilogy(W,'ko')
+        # sub region of the original image
+        x1, x2, y1, y2 = 392, 400,1e3,max(W)+5e4
+        axins.set_xlim(x1, x2)
+        axins.set_ylim(y1, y2)
+        axins.set_xticklabels([])
+        #axins.set_yticklabels([])
+
+        ax.indicate_inset_zoom(axins, edgecolor="black")
+
+        ax.set_xlabel('Velocity Number')
+        ax.set_ylabel('Eigenvalue')
         plt.show()
     
     # observed that the dominant eigenvalues were the last four, so save the corresponding eigenvectors
@@ -698,7 +710,7 @@ def PCA_combination(observation_dir, p = None):
         
     v_day1 = np.array(v_day1)
     # plot the daily velocities and calculate the RMS
-    if True:
+    if False:
         plt.figure()
         plt.errorbar(Time(mjds_day, format='mjd').to_datetime(),(v_day1-np.nanmean(v_day1))*1000,yerr = np.array(v_day_err1)*1000,fmt = 'ko',capsize=5)
         plt.ylabel('Velocity (m/s)')
@@ -708,7 +720,14 @@ def PCA_combination(observation_dir, p = None):
         print((np.nansum((v_day1-np.nanmean(v_day1))**2)/len(v_day1))**0.5 * 1000)
         print('rms, daily: ',np.std((v_day1-np.nanmean(v_day1)))*1000)
     #import pdb; pdb.set_trace()
-    
+    if True:
+        plt.figure()
+        plt.imshow(Y, aspect ='auto', interpolation='nearest')
+        plt.colorbar()
+        plt.xticks([0,1,2,3],[1,2,3,4])
+        plt.xlabel('Principal Component Number')
+        plt.ylabel('Observation Number')
+        plt.show()
     # plot the velocity for each observation against each mode
     if False:
         plt.figure()
@@ -765,7 +784,7 @@ def PCA_combination(observation_dir, p = None):
     return jds, v_adjust, v_wtmn_err, files, p, day_vels
               
 
-def generate_rvs(star_name, date, template_path, int_guess = -1, alpha = 0.2, residual_limit = 0.5,runs = 1, total_runs = 5):
+def generate_rvs(star_name, date, template_path, int_guess = -1, alpha = 0.2, residual_limit = 0.5,runs = 1, total_runs = 2):
     """
     Description
     -----------
@@ -873,11 +892,13 @@ def generate_rvs(star_name, date, template_path, int_guess = -1, alpha = 0.2, re
             lines = lines[~mask]
             widths = tellurics[1].data[order_index,:][~mask]
             depths = tellurics[2].data[order_index,:][~mask]
-
+            
+            
             
             template = pyfits.open(template_path)
             temp_wave = template[1].data[:,order]
             temp_spec = template[0].data[:,order]
+            
             gaus = np.exp(-np.linspace(-2,2,15)**2/2) 
             gaus /= np.sum(gaus)
             temp_spec = np.convolve(temp_spec,gaus, mode='same')
@@ -935,6 +956,16 @@ def generate_rvs(star_name, date, template_path, int_guess = -1, alpha = 0.2, re
                         initial_cond = [int_guess,0,0,0]
                         a = optimise.least_squares(rv_fitting_eqn,x0 = initial_cond, args=(log_wave, spect, err, temp_spec, temp_lwave[0], temp_dlwave),
                             jac=rv_jac, method='lm')
+                        
+                        if fibre == 10 and order == 13:
+                            plt.figure()
+                            plt.plot(np.exp(log_wave),spect,label = 'Original Spectrum')
+                            plt.plot(np.exp(log_wave),rv_fitting_eqn(a.x, log_wave, spect, err, temp_spec, temp_lwave[0], temp_dlwave, return_spec = True), label='Fitted Spectrum')
+                            plt.legend()
+                            plt.xlabel('Wavelength (Angstrom)')
+                            plt.ylabel('Flux')
+                            plt.show()
+                            
                         
                         for i,value in enumerate(a.fun):
                             if abs(value) > residual_limit:
@@ -1924,6 +1955,7 @@ def plot_phase(star_name, combination = 'systematic', plot = True, flagged_point
         mnrvs = []
         mnrvs_err = []
         times = []
+        time_fits = []
         for elem in day_rvs:
         
             dates = [elem[i][0] for i in range(len(elem))]
@@ -1934,12 +1966,13 @@ def plot_phase(star_name, combination = 'systematic', plot = True, flagged_point
             
             vels = np.array(vels)
             velerrs = np.array(velerrs)
+            t_fits = np.mean([elem[i][0] for i in range(len(elem))])
             t = Time(np.mean([elem[i][0] for i in range(len(elem))]), format='mjd').to_datetime()
             
             
             if True:
                 times.extend([t])
-                
+                time_fits.extend([t_fits])
                 
                 velerrs = np.where(velerrs>1e4, np.inf, velerrs)
                 w = 1/velerrs**2
@@ -1964,6 +1997,16 @@ def plot_phase(star_name, combination = 'systematic', plot = True, flagged_point
         plt.figure()
         #ys = np.where(abs(ys)<20,ys,np.nan)
         #mnrvs = np.where(abs(mnrvs)<1000,mnrvs,np.nan)
+        
+        if False:
+            prim = pyfits.PrimaryHDU()
+            mnrvs_fits = pyfits.ImageHDU(mnrvs,name = 'mnrvs')
+            mnrvs_err_fits = pyfits.ImageHDU(mnrvs_err, name = 'error')
+            times_fits = pyfits.ImageHDU(time_fits,name = 'time')  
+        
+            hdul = pyfits.HDUList([prim,mnrvs_fits,mnrvs_err_fits,times_fits])
+            hdul.writeto('/home/ehold13/veloce_scripts/plotting_funcs/comparison_results/10700_fib.fits')
+    
         
         for i in range(len(mnrvs)):
             if True:
@@ -2030,6 +2073,16 @@ def plot_chris(nightly_vels_dir):
     plt.ylabel('Velocity (m/s)')
     plt.xlabel('Observation Date')
     #plt.show()
+    
+    if False:
+        prim = pyfits.PrimaryHDU()
+        mnrvs_fits = pyfits.ImageHDU(v_nightly,name = 'mnrvs')
+        mnrvs_err_fits = pyfits.ImageHDU(v_nightly_err, name = 'error')
+        times_fits = pyfits.ImageHDU(np.array(jds)-2400000 ,name = 'time')  
+
+        hdul = pyfits.HDUList([prim,mnrvs_fits,mnrvs_err_fits,times_fits])
+        hdul.writeto('/home/ehold13/veloce_scripts/plotting_funcs/comparison_results/85512_cc.fits')
+
         
     return Time(jds, format = 'jd').to_datetime(), np.array(v_nightly) - mean, v_nightly_err       
         
