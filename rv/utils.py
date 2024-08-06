@@ -65,7 +65,7 @@ def correct_bad(in_spect, bad_mask, Bplus=None, max_ftpix = 64):
 
     return ext_spect[:len(in_spect)] + offset, Bplus
     
-def voigt_like_profile(params,u, sz=64, subsamp=4):
+def voigt_like_profile(params, sz=64, subsamp=4):
     """
     Return a Voigt-like profile, where instead of simply using a Gaussian, we use a 
     polynomial series multiplied by the Gaussian, which forms a complete basis for 
