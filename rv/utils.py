@@ -92,7 +92,7 @@ def voigt_like_profile(params,u, sz=64, subsamp=4):
     # Cauchy: np.exp(-gamma*u)
     gauss = np.exp(-np.pi**2*sigma**2*u**2)
     ft_func = gauss * np.exp(-gamma*u)  * np.sinc(u)
-    ft_func = ft_func.astype(np.complex)
+    ft_func = ft_func.astype(complex)
     
     # Now for the polynomial
     for ix, p in enumerate(poly):
