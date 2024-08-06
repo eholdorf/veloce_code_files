@@ -70,6 +70,11 @@ def voigt_like_profile(params,u, sz=64, subsamp=4):
     Return a Voigt-like profile, where instead of simply using a Gaussian, we use a 
     polynomial series multiplied by the Gaussian, which forms a complete basis for 
     square integral functions. Additionally, we convolve with a pixel of width=subsamp.
+    
+    parameters
+    	params: np.array (gamma, sigma, poly terms)
+    returns: 
+    	u: np.array
     """
     
     gamma = params[0]
